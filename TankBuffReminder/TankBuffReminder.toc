@@ -1,0 +1,8 @@
+## Interface: 11506, 20505
+## Title: Tank Buff Reminder
+## Notes: Shows a draggable button when important tank buffs are missing. Click to cast the missing buff.
+## Author: Gravebear
+## Version: 2.0.0
+## SavedVariables: TankBuffReminderDB
+
+TankBuffReminder.lua
