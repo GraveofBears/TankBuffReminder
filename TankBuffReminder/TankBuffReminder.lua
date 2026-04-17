@@ -6,18 +6,9 @@ local SCALE_MIN = 0.5
 local SCALE_MAX = 3.0
 
 -------------------------------------------------------------------------------
--- Buff list by class
+-- Load config
 -------------------------------------------------------------------------------
-local CLASS_BUFFS = {
-    PALADIN = {
-        { spellID = 25780, name = "Righteous Fury" },
-    },
-    DRUID = {
-        { spellID = 26992, name = "Thorns" },
-        { spellID = 26990, name = "Mark of the Wild" },
-        { spellID = 16864, name = "Omen of Clarity" },
-    },
-}
+local cfg = TankBuffReminderConfig
 
 -------------------------------------------------------------------------------
 -- Runtime variables
@@ -42,6 +33,20 @@ end
 
 local function HasBuff(spellID)
     local targetName = GetSpellInfo(spellID)
+
+    -- Special case: Mark of the Wild satisfied by Gift of the Wild
+    if spellID == 26990 then
+        local giftName = GetSpellInfo(26991)
+        for i = 1, 40 do
+            local name, _, _, _, _, _, _, _, _, _, auraSpellID = UnitBuff("player", i)
+            if not name then break end
+            if auraSpellID == 26991 or name == giftName then
+                return true
+            end
+        end
+    end
+
+    -- Normal buff check
     for i = 1, 40 do
         local name, _, _, _, _, _, _, _, _, _, auraSpellID = UnitBuff("player", i)
         if not name then break end
@@ -49,6 +54,7 @@ local function HasBuff(spellID)
             return true
         end
     end
+
     return false
 end
 
@@ -61,6 +67,7 @@ local function GetFirstMissingSpell()
             return entry.spellID, name, texture
         end
     end
+
     return nil
 end
 
@@ -69,7 +76,7 @@ end
 -------------------------------------------------------------------------------
 local frame = CreateFrame("Button", "TankBuffReminderFrame", UIParent, "SecureActionButtonTemplate")
 frame:SetMovable(true)
-frame:EnableMouse(true) -- always clickable
+frame:EnableMouse(true)
 frame:SetClampedToScreen(true)
 frame:RegisterForClicks("AnyUp", "AnyDown")
 
@@ -160,32 +167,30 @@ end)
 -------------------------------------------------------------------------------
 local pulseTimer = 0
 frame:SetScript("OnUpdate", function(self, elapsed)
-    if self:GetAlpha() < 0.5 then return end -- no pulse when dim
+    if self:GetAlpha() < 0.5 then return end
     pulseTimer = pulseTimer + elapsed
     local alpha = 0.75 + math.sin(pulseTimer * 4) * 0.25
     self:SetAlpha(alpha)
 end)
 
 -------------------------------------------------------------------------------
--- Update function (Always-clickable logic)
+-- UpdateVisibility
 -------------------------------------------------------------------------------
-local function UpdateVisibility()
+function UpdateVisibility()
     local missingID, missingName, texture = GetFirstMissingSpell()
 
     if not missingID then
-        -- Buff is active: ultra-dim but still clickable
         currentSpellID = nil
         soundPlayed = false
-
         frame:SetAlpha(0.02)
         icon:SetTexture(texture or icon:GetTexture() or "Interface\\Icons\\INV_Misc_QuestionMark")
-
         return
     end
 
-    -- Buff is missing
     if frame:GetAlpha() <= 0.05 and not soundPlayed then
-        PlaySound(8959, "Master")
+        if TankBuffReminderDB.playSound ~= false then
+            PlaySound(8959, "Master")
+        end
         soundPlayed = true
     end
 
@@ -199,8 +204,38 @@ local function UpdateVisibility()
     end
 
     icon:SetTexture(texture or "Interface\\Icons\\INV_Misc_QuestionMark")
-
     frame:SetAlpha(1)
+end
+
+-------------------------------------------------------------------------------
+-- Rebuild tracking list (The Fix)
+-------------------------------------------------------------------------------
+function TankBuffReminder_RebuildTrackedBuffs()
+    trackedBuffs = {}
+    local _, class = UnitClass("player")
+
+    for _, buff in ipairs(cfg.buffs) do
+        -- 1. Class Check
+        local isMyClass = false
+        if class == "PALADIN" and (buff.key == "righteousFury" or buff.key == "devotionAura") then
+            isMyClass = true
+        elseif class == "DRUID" and (buff.key == "thorns" or buff.key == "markOfTheWild" or buff.key == "omenOfClarity") then
+            isMyClass = true
+        elseif class == "WARRIOR" and (buff.key == "battleShout" or buff.key == "commandingShout" or buff.key == "defensiveStance") then
+            isMyClass = true
+        end
+
+        -- 2. Database Check
+        if isMyClass then
+            -- Only add to the tracking list if it is NOT explicitly false in the DB.
+            -- This allows "nil" (first time use) to default to active.
+            if TankBuffReminderDB[buff.key] ~= false then
+                table.insert(trackedBuffs, buff)
+            end
+        end
+    end
+
+    UpdateVisibility()
 end
 
 -------------------------------------------------------------------------------
@@ -229,15 +264,15 @@ end)
 
 eventFrame:SetScript("OnEvent", function(self, event, unit)
     if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
+        -- Apply global defaults only if they don't exist
+        if TankBuffReminderDB.playSound == nil then TankBuffReminderDB.playSound = true end
+        
+        -- Build the list based on current DB state
+        TankBuffReminder_RebuildTrackedBuffs()
+
         local _, class = UnitClass("player")
-        trackedBuffs = CLASS_BUFFS[class]
-        if not trackedBuffs then
-            frame:SetAlpha(0.02)
-            print("|cff00ccff[TankBuffReminder]|r Loaded - No buffs configured for your class.")
-            return
-        end
         print("|cff00ccff[TankBuffReminder]|r Loaded for " .. class)
-        C_Timer.After(0.8, UpdateVisibility)
+        C_Timer.After(0.5, UpdateVisibility)
 
     elseif event == "UNIT_AURA" and unit == "player" then
         UpdateVisibility()
@@ -248,11 +283,8 @@ eventFrame:SetScript("OnEvent", function(self, event, unit)
             frame:SetAttribute("macrotext1", "/cast " .. frame.needsMacro)
             frame.needsMacro = nil
         end
-
-        C_Timer.After(0, UpdateVisibility)
+        UpdateVisibility()
     end
 end)
 
 frame:SetAlpha(0.02)
-
-print("|cff00ccff[TankBuffReminder]|r Loaded successfully! (Final Combat-Safe Version)")
