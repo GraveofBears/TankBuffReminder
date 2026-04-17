@@ -168,8 +168,15 @@ end)
 local pulseTimer = 0
 frame:SetScript("OnUpdate", function(self, elapsed)
     if self:GetAlpha() < 0.5 then return end
+
+    local speed = TankBuffReminderDB.pulseSpeed or cfg.defaults.pulseSpeed
+    if speed <= 0 then
+        self:SetAlpha(1)
+        return
+    end
+
     pulseTimer = pulseTimer + elapsed
-    local alpha = 0.75 + math.sin(pulseTimer * 4) * 0.25
+    local alpha = 0.75 + math.sin(pulseTimer * speed) * 0.25
     self:SetAlpha(alpha)
 end)
 
@@ -189,7 +196,8 @@ function UpdateVisibility()
 
     if frame:GetAlpha() <= 0.05 and not soundPlayed then
         if TankBuffReminderDB.playSound ~= false then
-            PlaySound(8959, "Master")
+            local sID = TankBuffReminderDB.soundID or cfg.defaults.soundID
+            PlaySound(sID, "Master")
         end
         soundPlayed = true
     end
@@ -208,14 +216,13 @@ function UpdateVisibility()
 end
 
 -------------------------------------------------------------------------------
--- Rebuild tracking list (The Fix)
+-- Rebuild tracking list
 -------------------------------------------------------------------------------
 function TankBuffReminder_RebuildTrackedBuffs()
     trackedBuffs = {}
     local _, class = UnitClass("player")
 
     for _, buff in ipairs(cfg.buffs) do
-        -- 1. Class Check
         local isMyClass = false
         if class == "PALADIN" and (buff.key == "righteousFury" or buff.key == "devotionAura") then
             isMyClass = true
@@ -225,10 +232,7 @@ function TankBuffReminder_RebuildTrackedBuffs()
             isMyClass = true
         end
 
-        -- 2. Database Check
         if isMyClass then
-            -- Only add to the tracking list if it is NOT explicitly false in the DB.
-            -- This allows "nil" (first time use) to default to active.
             if TankBuffReminderDB[buff.key] ~= false then
                 table.insert(trackedBuffs, buff)
             end
@@ -265,7 +269,9 @@ end)
 eventFrame:SetScript("OnEvent", function(self, event, unit)
     if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
         -- Apply global defaults only if they don't exist
-        if TankBuffReminderDB.playSound == nil then TankBuffReminderDB.playSound = true end
+        if TankBuffReminderDB.playSound == nil then TankBuffReminderDB.playSound = cfg.defaults.playSound end
+        if TankBuffReminderDB.pulseSpeed == nil then TankBuffReminderDB.pulseSpeed = cfg.defaults.pulseSpeed end
+        if TankBuffReminderDB.soundID == nil then TankBuffReminderDB.soundID = cfg.defaults.soundID end
         
         -- Build the list based on current DB state
         TankBuffReminder_RebuildTrackedBuffs()
@@ -287,4 +293,4 @@ eventFrame:SetScript("OnEvent", function(self, event, unit)
     end
 end)
 
-frame:SetAlpha(0.02)
+frame:SetAlpha(0.01)
