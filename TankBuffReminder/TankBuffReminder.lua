@@ -48,6 +48,13 @@ local function ApplyGlowSettings(f)
     f.glow:SetVertexColor(c.r, c.g, c.b, c.a)
 end
 
+local function ApplyScale(f, scale)
+    TankBuffReminderDB.scale = math_max(SCALE_MIN, math_min(SCALE_MAX, scale or 1))
+    local size = BASE_SIZE * TankBuffReminderDB.scale
+    f:SetSize(size, size)
+    ApplyGlowSettings(f)
+end
+
 function TankBuffReminder_UpdateGlow()
     if TankBuffReminderFrame then
         ApplyGlowSettings(TankBuffReminderFrame)
@@ -80,7 +87,6 @@ local function HasBuff(entry)
         end
         return false
     end
-
     for i = 1, 40 do
         local name = UnitBuff("player", i)
         if not name then break end
@@ -92,7 +98,6 @@ end
 function UpdateVisibility()
     CheckSalvation()
     local missing = nil
-    
     for i = 1, #trackedBuffs do
         local entry = trackedBuffs[i]
         if not HasBuff(entry) then
@@ -114,13 +119,11 @@ function UpdateVisibility()
             PlaySound(TankBuffReminderDB.soundID or 8959, "Master")
             soundPlayed = true
         end
-
         if not InCombatLockdown() then
             f:SetAttribute("spell1", missing.name)
         else
             f.needsSpell = missing.name
         end
-
         f.icon:SetTexture(missing.icon)
         f:SetAlpha(1)
         ApplyGlowSettings(f)
@@ -135,7 +138,6 @@ function TankBuffReminder_RebuildTrackedBuffs()
         local isClass = (class == "PALADIN" and (b.key == "righteousFury" or b.key == "devotionAura")) or
                         (class == "DRUID" and (b.key == "thorns" or b.key == "markOfTheWild" or b.key == "omenOfClarity")) or
                         (class == "WARRIOR" and (b.key == "battleShout" or b.key == "commandingShout" or b.key == "defensiveStance"))
-        
         if isClass and TankBuffReminderDB[b.key] ~= false then 
             local name, _, icon = GetSpellInfo(b.spellID)
             if name then
@@ -147,7 +149,7 @@ function TankBuffReminder_RebuildTrackedBuffs()
 end
 
 -------------------------------------------------------------------------------
--- Frame Initialization & Events
+-- Frame Initialization & Handlers
 -------------------------------------------------------------------------------
 local frame = CreateFrame("Button", "TankBuffReminderFrame", UIParent, "SecureActionButtonTemplate")
 frame:SetSize(BASE_SIZE, BASE_SIZE)
@@ -156,10 +158,9 @@ frame:EnableMouse(true)
 frame:SetClampedToScreen(true)
 frame:RegisterForClicks("AnyUp", "AnyDown")
 
--- FORCED SELF-CAST SETTINGS
 frame:SetAttribute("type1", "spell")
-frame:SetAttribute("unit", "player") -- Targets you
-frame:SetAttribute("checkselfcast", true) -- Forces self-cast logic
+frame:SetAttribute("unit", "player")
+frame:SetAttribute("checkselfcast", true)
 
 frame.glow = frame:CreateTexture(nil, "BACKGROUND", nil, 2)
 frame.glow:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
@@ -172,15 +173,34 @@ frame.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
 SetupAnimations(frame)
 
+-- DRAG HANDLER
 frame:SetScript("OnMouseDown", function(self, button)
     if not InCombatLockdown() and button == "LeftButton" and IsShiftKeyDown() then self:StartMoving() end
 end)
-
 frame:SetScript("OnMouseUp", function(self)
     if not InCombatLockdown() then
         self:StopMovingOrSizing()
         local p, _, rp, x, y = self:GetPoint()
         TankBuffReminderDB.f1_pos = {p=p, rp=rp, x=x, y=y}
+    end
+end)
+
+-- RESIZE HANDLER
+frame:SetResizable(true)
+local resize = CreateFrame("Frame", nil, frame)
+resize:SetPoint("BOTTOMRIGHT")
+resize:SetSize(16, 16)
+resize:EnableMouse(true)
+local resizeTex = resize:CreateTexture(nil, "OVERLAY")
+resizeTex:SetAllPoints()
+resizeTex:SetTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+
+resize:SetScript("OnMouseDown", function(self) if not InCombatLockdown() then self:GetParent():StartSizing("BOTTOMRIGHT") end end)
+resize:SetScript("OnMouseUp", function(self)
+    if not InCombatLockdown() then
+        local f = self:GetParent()
+        f:StopMovingOrSizing()
+        ApplyScale(f, f:GetWidth() / BASE_SIZE)
     end
 end)
 
@@ -192,8 +212,15 @@ eF:RegisterEvent("MERCHANT_SHOW")
 
 eF:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_LOGIN" then
+        for k, v in pairs(cfg.defaults) do if TankBuffReminderDB[k] == nil then TankBuffReminderDB[k] = v end end
+        if TankBuffReminderDB.f1_pos then 
+            frame:ClearAllPoints()
+            frame:SetPoint(TankBuffReminderDB.f1_pos.p, UIParent, TankBuffReminderDB.f1_pos.rp, TankBuffReminderDB.f1_pos.x, TankBuffReminderDB.f1_pos.y) 
+        else 
+            frame:SetPoint("CENTER", UIParent, "CENTER", 0, -150) 
+        end
+        ApplyScale(frame, TankBuffReminderDB.scale or 1)
         TankBuffReminder_RebuildTrackedBuffs()
-        UpdateVisibility()
     elseif event == "MERCHANT_SHOW" then
         if TankBuffReminderDB.autoRepair and CanMerchantRepair() then
             local cost = GetRepairAllCost()
