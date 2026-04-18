@@ -6,10 +6,14 @@
 * **Intelligent Tracking**: Automatically detects your class and monitors essential buffs like Righteous Fury, Thorns, or specific Stance requirements.
 * **Secure Casting**: The reminder icon functions as a secure action button, allowing you to cast the missing buff directly from the UI.
 * **Combat Safe**: Handles combat lockdowns gracefully, updating attributes once you leave combat to ensure no "Action Blocked" errors.
-* **Pulse Speed Slider**: Adjust the icon's pulse from a slow glow to a fast flash, or turn it off entirely for a static icon.
-* **Sound Selection**: Choose your preferred alert sound from a dropdown menu, including the iconic "Succubus Butt Slap."
-* **Toggle Individual Buffs**: Disable tracking for specific spells you don't wish to maintain.
-* **Scaling & Positioning**: Use the grabber to scale the UI (0.5x to 3.0x) and **Shift + Drag** to move the icon anywhere.
+* **Visual Customization**:
+    * **Pulse Speed**: Adjust the icon's pulse from a slow glow to a fast flash.
+    * **Glow Color Picker**: Fully customize the glow color using an in-game color swatch to match your UI or class aesthetic.
+    * **Glow Scaling**: Adjust the size of the outer glow relative to the icon.
+* **Sound Selection**: Choose your preferred alert sound from a dropdown menu.
+* **Toggle Individual Buffs**: Disable tracking for specific spells you don't wish to maintain via the options menu.
+* **Scaling & Positioning**: Use the grabber to scale the UI (**0.5x to 3.0x**) and **Shift + Drag** to move the icon anywhere.
+* **Quick Reset**: A dedicated "Reset" button in the options to instantly restore default position, size, and colors.
 
 ## Supported Classes & Spells
 * **Paladin**: Righteous Fury, Devotion Aura.
@@ -17,12 +21,12 @@
 * **Warrior**: Battle Shout, Commanding Shout, Defensive Stance.
 
 ## Installation
-1. Download the repository.
-2. Extract the `TankBuffReminder` folder into your `World of Warcraft/_classic_/Interface/AddOns/` directory.
-3. Restart WoW or reload your UI (`/reload`).
+1.  Download the repository.
+2.  Extract the `TankBuffReminder` folder into your `World of Warcraft/_classic_/Interface/AddOns/` directory.
+3.  Restart WoW or reload your UI (`/reload`).
 
 ## Commands
-* `/tbr` - Opens the configuration and options panel.
+* `/tbr` — Opens the configuration and options panel.
 
 ---
-**Author**: Gravebear  
+**Author**: Gravebear
