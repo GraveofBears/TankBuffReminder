@@ -22,5 +22,7 @@ TankBuffReminderConfig = {
         playSound = true,
         pulseSpeed = 4,
         soundID = 8959,
+        glowSize = 1.5,
+        glowColor = { r = 1, g = 1, b = 0.6, a = 1 } 
     }
 }

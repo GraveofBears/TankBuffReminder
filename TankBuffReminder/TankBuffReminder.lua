@@ -24,12 +24,33 @@ local db = TankBuffReminderDB
 -------------------------------------------------------------------------------
 -- Helpers
 -------------------------------------------------------------------------------
+
+-- Logic to apply glow size and color (Scales with the icon)
+local function ApplyGlowSettings(frame)
+    if not frame.glow then return end
+    
+    -- Apply Size based on current frame width * glow ratio
+    local ratio = TankBuffReminderDB.glowSize or cfg.defaults.glowSize or 1.5
+    local size = frame:GetWidth() * ratio
+    frame.glow:SetSize(size, size)
+    
+    -- Apply Color from config
+    local c = TankBuffReminderDB.glowColor or cfg.defaults.glowColor
+    frame.glow:SetVertexColor(c.r, c.g, c.b, c.a)
+end
+
 local function ApplyScale(frame, scale)
     scale = math.max(SCALE_MIN, math.min(SCALE_MAX, scale or 1))
     local size = BASE_SIZE * scale
     frame:SetWidth(size)
     frame:SetHeight(size)
     db.scale = scale
+    ApplyGlowSettings(frame) -- Ensure glow scales with icon
+end
+
+-- Global function for Options.lua to trigger visual updates
+function TankBuffReminder_UpdateGlow()
+    ApplyGlowSettings(TankBuffReminderFrame)
 end
 
 local function HasBuff(spellID)
@@ -81,10 +102,17 @@ frame:EnableMouse(true)
 frame:SetClampedToScreen(true)
 frame:RegisterForClicks("AnyUp", "AnyDown")
 
--- Force the button to target the player to avoid losing your current target
+-- Force targeting player
 frame:SetAttribute("unit", "player")
 frame:SetAttribute("type1", "spell")
 frame:SetAttribute("spell1", "")
+
+-- Create Glow Texture (In BACKGROUND layer so it's behind the icon)
+local glow = frame:CreateTexture(nil, "BACKGROUND")
+glow:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+glow:SetBlendMode("ADD")
+glow:SetPoint("CENTER", frame, "CENTER")
+frame.glow = glow
 
 if db.point then
     frame:SetPoint(db.point, UIParent, db.relPoint, db.x, db.y)
@@ -170,17 +198,22 @@ end)
 -------------------------------------------------------------------------------
 local pulseTimer = 0
 frame:SetScript("OnUpdate", function(self, elapsed)
-    if self:GetAlpha() < 0.5 then return end
+    if self:GetAlpha() < 0.5 then 
+        glow:SetAlpha(0)
+        return 
+    end
 
     local speed = TankBuffReminderDB.pulseSpeed or cfg.defaults.pulseSpeed
     if speed <= 0 then
         self:SetAlpha(1)
+        glow:SetAlpha(0.6)
         return
     end
 
     pulseTimer = pulseTimer + elapsed
     local alpha = 0.75 + math.sin(pulseTimer * speed) * 0.25
     self:SetAlpha(alpha)
+    glow:SetAlpha(alpha - 0.2) -- Sync glow pulse with icon pulse
 end)
 
 -------------------------------------------------------------------------------
@@ -193,6 +226,7 @@ function UpdateVisibility()
         currentSpellID = nil
         soundPlayed = false
         frame:SetAlpha(0.02)
+        glow:SetAlpha(0)
         icon:SetTexture(texture or icon:GetTexture() or "Interface\\Icons\\INV_Misc_QuestionMark")
         return
     end
@@ -271,13 +305,15 @@ end)
 
 eventFrame:SetScript("OnEvent", function(self, event, unit)
     if event == "PLAYER_LOGIN" then
-        -- Apply global defaults only if they don't exist
+        -- Initialize Database with Defaults
         if TankBuffReminderDB.playSound == nil then TankBuffReminderDB.playSound = cfg.defaults.playSound end
         if TankBuffReminderDB.pulseSpeed == nil then TankBuffReminderDB.pulseSpeed = cfg.defaults.pulseSpeed end
         if TankBuffReminderDB.soundID == nil then TankBuffReminderDB.soundID = cfg.defaults.soundID end
+        if TankBuffReminderDB.glowSize == nil then TankBuffReminderDB.glowSize = cfg.defaults.glowSize end
+        if TankBuffReminderDB.glowColor == nil then TankBuffReminderDB.glowColor = cfg.defaults.glowColor end
         
-        -- Build the list based on current DB state
         TankBuffReminder_RebuildTrackedBuffs()
+        ApplyGlowSettings(frame)
 
         if not initialLoadDone then
             local _, class = UnitClass("player")
