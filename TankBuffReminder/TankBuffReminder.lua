@@ -132,11 +132,24 @@ function UpdateVisibility()
         end
     end
 
+    -- Use the global frame name to avoid "nil" errors
+    local f = TankBuffReminderFrame
+    if not f then return end -- Safety check
+
     if not missingID then
-        TankBuffReminderFrame:SetAlpha(0.02)
-        TankBuffReminderFrame.glow:SetAlpha(0)
-        TankBuffReminderFrame.ag:Stop()
+        -- Force state reset
+        f.currentSpellID = nil
         soundPlayed = false
+        
+        -- Stop animations and hide
+        if f.ag and f.ag:IsPlaying() then f.ag:Stop() end
+        f:SetAlpha(0.01) 
+        f.glow:SetAlpha(0)
+        
+        -- Clear the secure attribute
+        if not InCombatLockdown() then
+            f:SetAttribute("spell1", nil)
+        end
     else
         if not soundPlayed and (TankBuffReminderDB.playSound ~= false) then
             local soundToPlay = TankBuffReminderDB.soundID or (cfg.defaults and cfg.defaults.soundID) or 8959
@@ -145,15 +158,15 @@ function UpdateVisibility()
         end
 
         if not InCombatLockdown() then
-            TankBuffReminderFrame:SetAttribute("spell1", missingName)
+            f:SetAttribute("spell1", missingName)
         else
-            TankBuffReminderFrame.needsSpell = missingName
+            f.needsSpell = missingName
         end
 
-        TankBuffReminderFrame.icon:SetTexture(texture or "Interface\\Icons\\INV_Misc_QuestionMark")
-        TankBuffReminderFrame:SetAlpha(1)
-        ApplyGlowSettings(TankBuffReminderFrame)
-        UpdatePulseSpeed(TankBuffReminderFrame)
+        f.icon:SetTexture(texture or "Interface\\Icons\\INV_Misc_QuestionMark")
+        f:SetAlpha(1)
+        ApplyGlowSettings(f)
+        UpdatePulseSpeed(f)
     end
 end
 
