@@ -1,383 +1,261 @@
 -- TankBuffReminder.lua
-
 local CHECK_INTERVAL = 1.0
 local BASE_SIZE = 64
 local SCALE_MIN = 0.5
 local SCALE_MAX = 3.0
 
--------------------------------------------------------------------------------
--- Load config
--------------------------------------------------------------------------------
 local cfg = TankBuffReminderConfig
-
--------------------------------------------------------------------------------
--- Runtime variables
--------------------------------------------------------------------------------
-local currentSpellID = nil
 local trackedBuffs = nil
 local soundPlayed = false
 local initialLoadDone = false
+local lastTauntAlert = 0 -- Anti-spam timer variable
 
 TankBuffReminderDB = TankBuffReminderDB or {}
 local db = TankBuffReminderDB
 
 -------------------------------------------------------------------------------
--- Helpers
+-- Helpers & Automation
 -------------------------------------------------------------------------------
 
--- Logic to apply glow size and color (Scales with the icon)
-local function ApplyGlowSettings(frame)
-    if not frame.glow then return end
+local function ApplyGlowSettings(f)
+    if not f or not f.glow then return end
     
-    -- Apply Size based on current frame width * glow ratio
-    local ratio = TankBuffReminderDB.glowSize or cfg.defaults.glowSize or 1.5
-    local size = frame:GetWidth() * ratio
-    frame.glow:SetSize(size, size)
+    local ratio = TankBuffReminderDB.glowSize or (cfg.defaults and cfg.defaults.glowSize) or 1.5
+    local size = f:GetWidth() * (ratio * 1.2) 
+    f.glow:SetSize(size, size)
     
-    -- Apply Color from config
-    local c = TankBuffReminderDB.glowColor or cfg.defaults.glowColor
-    frame.glow:SetVertexColor(c.r, c.g, c.b, c.a)
+    local c = TankBuffReminderDB.glowColor or (cfg.defaults and cfg.defaults.glowColor)
+    f.glow:SetVertexColor(c.r, c.g, c.b, c.a)
 end
 
-local function ApplyScale(frame, scale)
-    scale = math.max(SCALE_MIN, math.min(SCALE_MAX, scale or 1))
-    local size = BASE_SIZE * scale
-    frame:SetWidth(size)
-    frame:SetHeight(size)
-    db.scale = scale
-    ApplyGlowSettings(frame) -- Ensure glow scales with icon
+local function ApplyScale(f, scale)
+    TankBuffReminderDB.scale = math.max(SCALE_MIN, math.min(SCALE_MAX, scale or 1))
+    local size = BASE_SIZE * TankBuffReminderDB.scale
+    f:SetSize(size, size)
+    ApplyGlowSettings(f)
 end
 
--- Global function for Options.lua to trigger visual updates
 function TankBuffReminder_UpdateGlow()
     ApplyGlowSettings(TankBuffReminderFrame)
 end
 
--- Logic to auto-set Tank role in groups
-local function SetTankRole()
-    if not TankBuffReminderDB.autoSetTankRole then return end
-    if not IsInGroup() then return end
-    
-    -- Optional: Disable auto-set if in a Raid to avoid fighting the Raid Leader
-    if IsInRaid() then return end 
-
-    local role = UnitGroupRolesAssigned("player")
-    if role ~= "TANK" then
-        UnitSetRole("player", "TANK")
+local function DoAutoRepair()
+    if not TankBuffReminderDB.autoRepair or not CanMerchantRepair() then return end
+    local cost = GetRepairAllCost()
+    if cost > 0 and GetMoney() >= cost then
+        RepairAllItems()
+        print("|cff00ccff[TBR]|r Repaired for " .. GetCoinTextureString(cost))
     end
 end
 
--- Logic to auto-remove Salvation if the option is enabled
+local function OnCombatLogEvent()
+    if not TankBuffReminderDB.tauntAlert then return end
+    
+    -- ANTI-SPAM: If we alerted less than 3 seconds ago, stop here
+    if GetTime() - lastTauntAlert < 3 then return end
+
+    local _, subEvent, _, _, sourceName, _, _, _, destName, _, _, spellID, _, _, missType = CombatLogGetCurrentEventInfo()
+    
+    if sourceName == UnitName("player") and subEvent == "SPELL_MISSED" then
+        if cfg.tauntSpells and cfg.tauntSpells[spellID] then
+            print("|cffff0000[TBR ALERT]|r Taunt |cffffffffMISSED|r on " .. (destName or "Target") .. " (" .. (missType or "RESIST") .. ")!")
+            
+            -- Play selected sound
+            local soundToPlay = TankBuffReminderDB.soundID or (cfg.defaults and cfg.defaults.soundID) or 8959
+            PlaySound(soundToPlay, "Master") 
+            
+            lastTauntAlert = GetTime() -- Reset the anti-spam timer
+        end
+    end
+end
+
+local function SetTankRole()
+    if InCombatLockdown() then return end
+    if not TankBuffReminderDB.autoSetTankRole or IsInRaid() or not IsInGroup() then return end
+    if UnitGroupRolesAssigned("player") ~= "TANK" then UnitSetRole("player", "TANK") end
+end
+
 local function CheckSalvation()
     if not TankBuffReminderDB.autoRemoveSalvation then return end
-
-    -- Buff names/IDs for Salvation and Greater Salvation
-    local salvationSpells = {
-        [1038] = true,  -- Blessing of Salvation
-        [25895] = true, -- Greater Blessing of Salvation
-    }
-
     for i = 1, 40 do
         local name, _, _, _, _, _, _, _, _, _, spellID = UnitBuff("player", i)
         if not name then break end
-        
-        if salvationSpells[spellID] then
-            CancelUnitBuff("player", i)
-            print("|cff00ccff[TankBuffReminder]|r Auto-removed " .. name)
+        if spellID == 1038 or spellID == 25895 then 
+            CancelUnitBuff("player", i) 
+            print("|cff00ccff[TBR]|r Removed Salvation")
         end
     end
 end
 
 local function HasBuff(spellID)
     local targetName = GetSpellInfo(spellID)
-
-    -- Special case: Mark of the Wild satisfied by Gift of the Wild
-    if spellID == 26990 then
-        local giftName = GetSpellInfo(26991)
-        for i = 1, 40 do
-            local name, _, _, _, _, _, _, _, _, _, auraSpellID = UnitBuff("player", i)
-            if not name then break end
-            if auraSpellID == 26991 or name == giftName then
-                return true
-            end
-        end
-    end
-
-    -- Normal buff check
+    if spellID == 26990 and HasBuff(26991) then return true end
     for i = 1, 40 do
         local name, _, _, _, _, _, _, _, _, _, auraSpellID = UnitBuff("player", i)
         if not name then break end
-        if auraSpellID == spellID or name == targetName then
-            return true
-        end
+        if auraSpellID == spellID or name == targetName then return true end
     end
-
     return false
 end
 
-local function GetFirstMissingSpell()
-    if not trackedBuffs then return nil end
-
-    for _, entry in ipairs(trackedBuffs) do
-        local name, _, texture = GetSpellInfo(entry.spellID)
-        if name and not HasBuff(entry.spellID) then
-            return entry.spellID, name, texture
-        end
-    end
-
-    return nil
-end
-
 -------------------------------------------------------------------------------
--- Main frame (Secure)
+-- Main Frame
 -------------------------------------------------------------------------------
 local frame = CreateFrame("Button", "TankBuffReminderFrame", UIParent, "SecureActionButtonTemplate")
 frame:SetMovable(true)
 frame:EnableMouse(true)
 frame:SetClampedToScreen(true)
 frame:RegisterForClicks("AnyUp", "AnyDown")
-
--- Force targeting player
 frame:SetAttribute("unit", "player")
 frame:SetAttribute("type1", "spell")
-frame:SetAttribute("spell1", "")
 
--- Create Glow Texture (In BACKGROUND layer so it's behind the icon)
-local glow = frame:CreateTexture(nil, "BACKGROUND")
-glow:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
-glow:SetBlendMode("ADD")
-glow:SetPoint("CENTER", frame, "CENTER")
-frame.glow = glow
+frame.glow = frame:CreateTexture(nil, "BACKGROUND", nil, 2)
+frame.glow:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+frame.glow:SetBlendMode("ADD")
+frame.glow:SetPoint("CENTER", frame, "CENTER")
 
-if db.point then
-    frame:SetPoint(db.point, UIParent, db.relPoint, db.x, db.y)
-else
-    frame:SetPoint("CENTER", UIParent, "CENTER", 0, -150)
-end
-ApplyScale(frame, db.scale or 1)
+frame.icon = frame:CreateTexture(nil, "ARTWORK")
+frame.icon:SetAllPoints()
+frame.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
-local icon = frame:CreateTexture(nil, "ARTWORK")
-icon:SetAllPoints()
-icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+frame.border = frame:CreateTexture(nil, "OVERLAY")
+frame.border:SetTexture("Interface\\Buttons\\UI-Quickslot2")
+frame.border:SetVertexColor(1, 1, 1, 0.2)
+frame.border:SetAllPoints()
 
-local border = frame:CreateTexture(nil, "OVERLAY")
-border:SetTexture("Interface\\Buttons\\UI-Quickslot2")
-border:SetVertexColor(1, 1, 1, 0.15)
-border:SetAllPoints()
-
--------------------------------------------------------------------------------
--- Tooltip
--------------------------------------------------------------------------------
-frame:SetScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    if currentSpellID then
-        GameTooltip:SetSpellByID(currentSpellID)
-    else
-        GameTooltip:SetText("Tank Buff Reminder")
-    end
-    GameTooltip:AddLine(" ")
-    GameTooltip:AddLine("Left-click to cast", 1, 1, 1)
-    GameTooltip:AddLine("Shift + drag to move", 0.8, 0.8, 0.8)
-    GameTooltip:AddLine("Drag bottom-right corner to resize", 0.8, 0.8, 0.8)
-    GameTooltip:Show()
-end)
-
-frame:SetScript("OnLeave", function()
-    GameTooltip:Hide()
-end)
-
--------------------------------------------------------------------------------
--- Movement & Resize (combat-safe)
--------------------------------------------------------------------------------
 frame:SetScript("OnMouseDown", function(self, button)
-    if InCombatLockdown() then return end
-    if button == "LeftButton" and IsShiftKeyDown() then
+    if not InCombatLockdown() and button == "LeftButton" and IsShiftKeyDown() then
         self:StartMoving()
     end
 end)
 
 frame:SetScript("OnMouseUp", function(self)
-    if InCombatLockdown() then return end
-    self:StopMovingOrSizing()
-    local point, _, relPoint, x, y = self:GetPoint()
-    db.point = point
-    db.relPoint = relPoint
-    db.x = x
-    db.y = y
+    if not InCombatLockdown() then
+        self:StopMovingOrSizing()
+        local p, _, rp, x, y = self:GetPoint()
+        TankBuffReminderDB.f1_pos = {p=p, rp=rp, x=x, y=y}
+    end
 end)
 
 frame:SetResizable(true)
 local resize = CreateFrame("Frame", nil, frame)
 resize:SetPoint("BOTTOMRIGHT")
-resize:SetSize(18, 18)
+resize:SetSize(20, 20)
 resize:EnableMouse(true)
-
 local resizeTex = resize:CreateTexture(nil, "OVERLAY")
 resizeTex:SetAllPoints()
 resizeTex:SetTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
 
 resize:SetScript("OnMouseDown", function(self)
-    if InCombatLockdown() then return end
-    self:GetParent():StartSizing("BOTTOMRIGHT")
+    if not InCombatLockdown() then self:GetParent():StartSizing("BOTTOMRIGHT") end
 end)
 
 resize:SetScript("OnMouseUp", function(self)
-    if InCombatLockdown() then return end
-    local f = self:GetParent()
-    f:StopMovingOrSizing()
-    ApplyScale(f, f:GetWidth() / BASE_SIZE)
-end)
-
--------------------------------------------------------------------------------
--- Pulse animation
--------------------------------------------------------------------------------
-local pulseTimer = 0
-frame:SetScript("OnUpdate", function(self, elapsed)
-    if self:GetAlpha() < 0.5 then 
-        glow:SetAlpha(0)
-        return 
+    if not InCombatLockdown() then
+        local f = self:GetParent()
+        f:StopMovingOrSizing()
+        ApplyScale(f, f:GetWidth() / BASE_SIZE)
     end
-
-    local speed = TankBuffReminderDB.pulseSpeed or cfg.defaults.pulseSpeed
-    if speed <= 0 then
-        self:SetAlpha(1)
-        glow:SetAlpha(0.6)
-        return
-    end
-
-    pulseTimer = pulseTimer + elapsed
-    local alpha = 0.75 + math.sin(pulseTimer * speed) * 0.25
-    self:SetAlpha(alpha)
-    glow:SetAlpha(alpha - 0.2) -- Sync glow pulse with icon pulse
 end)
 
 -------------------------------------------------------------------------------
 -- UpdateVisibility
 -------------------------------------------------------------------------------
 function UpdateVisibility()
-    -- Run automation checks
     CheckSalvation()
-
-    local missingID, missingName, texture = GetFirstMissingSpell()
-
-    if not missingID then
-        currentSpellID = nil
-        soundPlayed = false
-        frame:SetAlpha(0.02)
-        glow:SetAlpha(0)
-        icon:SetTexture(texture or icon:GetTexture() or "Interface\\Icons\\INV_Misc_QuestionMark")
-        return
-    end
-
-    if frame:GetAlpha() <= 0.05 and not soundPlayed then
-        if TankBuffReminderDB.playSound ~= false then
-            local sID = TankBuffReminderDB.soundID or cfg.defaults.soundID
-            PlaySound(sID, "Master")
-        end
-        soundPlayed = true
-    end
-
-    currentSpellID = missingID
-
-    if not InCombatLockdown() then
-        frame:SetAttribute("type1", "spell")
-        frame:SetAttribute("spell1", missingName)
-    else
-        frame.needsSpell = missingName
-    end
-
-    icon:SetTexture(texture or "Interface\\Icons\\INV_Misc_QuestionMark")
-    frame:SetAlpha(1)
-end
-
--------------------------------------------------------------------------------
--- Rebuild tracking list
--------------------------------------------------------------------------------
-function TankBuffReminder_RebuildTrackedBuffs()
-    trackedBuffs = {}
-    local _, class = UnitClass("player")
-
-    for _, buff in ipairs(cfg.buffs) do
-        local isMyClass = false
-        if class == "PALADIN" and (buff.key == "righteousFury" or buff.key == "devotionAura") then
-            isMyClass = true
-        elseif class == "DRUID" and (buff.key == "thorns" or buff.key == "markOfTheWild" or buff.key == "omenOfClarity") then
-            isMyClass = true
-        elseif class == "WARRIOR" and (buff.key == "battleShout" or buff.key == "commandingShout" or buff.key == "defensiveStance") then
-            isMyClass = true
-        end
-
-        if isMyClass then
-            if TankBuffReminderDB[buff.key] ~= false then
-                table.insert(trackedBuffs, buff)
+    local missingID, missingName, texture = nil, nil, nil
+    
+    if trackedBuffs then
+        for _, entry in ipairs(trackedBuffs) do
+            local name, _, tex = GetSpellInfo(entry.spellID)
+            if name and not HasBuff(entry.spellID) then
+                missingID, missingName, texture = entry.spellID, name, tex
+                break
             end
         end
     end
 
+    if not missingID then
+        frame.currentSpellID = nil
+        soundPlayed = false
+        frame:SetAlpha(0.02)
+        frame.glow:SetAlpha(0)
+    else
+        if not soundPlayed and (TankBuffReminderDB.playSound ~= false) then
+            local soundToPlay = TankBuffReminderDB.soundID or (cfg.defaults and cfg.defaults.soundID) or 8959
+            PlaySound(soundToPlay, "Master")
+            soundPlayed = true
+        end
+
+        frame.currentSpellID = missingID
+        if not InCombatLockdown() then
+            frame:SetAttribute("spell1", missingName)
+        else
+            frame.needsSpell = missingName
+        end
+        frame.icon:SetTexture(texture or "Interface\\Icons\\INV_Misc_QuestionMark")
+        frame:SetAlpha(1)
+        ApplyGlowSettings(frame) 
+    end
+end
+
+function TankBuffReminder_RebuildTrackedBuffs()
+    trackedBuffs = {}
+    local _, class = UnitClass("player")
+    for _, b in ipairs(cfg.buffs) do
+        local isClass = (class == "PALADIN" and (b.key == "righteousFury" or b.key == "devotionAura")) or
+                        (class == "DRUID" and (b.key == "thorns" or b.key == "markOfTheWild" or b.key == "omenOfClarity")) or
+                        (class == "WARRIOR" and (b.key == "battleShout" or b.key == "commandingShout" or b.key == "defensiveStance"))
+        if isClass and TankBuffReminderDB[b.key] ~= false then table.insert(trackedBuffs, b) end
+    end
     UpdateVisibility()
 end
 
 -------------------------------------------------------------------------------
--- Events
+-- Events & Pulse
 -------------------------------------------------------------------------------
-local eventFrame = CreateFrame("Frame")
-eventFrame:RegisterEvent("PLAYER_LOGIN")
-eventFrame:RegisterEvent("UNIT_AURA")
-eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE") -- Detect joining groups
+local eF = CreateFrame("Frame")
+eF:RegisterEvent("PLAYER_LOGIN")
+eF:RegisterEvent("UNIT_AURA")
+eF:RegisterEvent("PLAYER_ENTERING_WORLD")
+eF:RegisterEvent("PLAYER_REGEN_ENABLED")
+eF:RegisterEvent("GROUP_ROSTER_UPDATE")
+eF:RegisterEvent("MERCHANT_SHOW")
+eF:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 
-frame:HookScript("OnClick", function(self, button)
-    if button == "LeftButton" and currentSpellID then
-        C_Timer.After(0.7, UpdateVisibility)
-    end
-end)
-
-local elapsedTotal = 0
-eventFrame:SetScript("OnUpdate", function(self, elapsed)
-    elapsedTotal = elapsedTotal + elapsed
-    if elapsedTotal >= CHECK_INTERVAL then
-        elapsedTotal = 0
-        UpdateVisibility()
-    end
-end)
-
-eventFrame:SetScript("OnEvent", function(self, event, unit)
+eF:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_LOGIN" then
-        -- Initialize Database with Defaults
-        if TankBuffReminderDB.playSound == nil then TankBuffReminderDB.playSound = cfg.defaults.playSound end
-        if TankBuffReminderDB.pulseSpeed == nil then TankBuffReminderDB.pulseSpeed = cfg.defaults.pulseSpeed end
-        if TankBuffReminderDB.soundID == nil then TankBuffReminderDB.soundID = cfg.defaults.soundID end
-        if TankBuffReminderDB.glowSize == nil then TankBuffReminderDB.glowSize = cfg.defaults.glowSize end
-        if TankBuffReminderDB.glowColor == nil then TankBuffReminderDB.glowColor = cfg.defaults.glowColor end
-        if TankBuffReminderDB.autoRemoveSalvation == nil then TankBuffReminderDB.autoRemoveSalvation = cfg.defaults.autoRemoveSalvation end
-        if TankBuffReminderDB.autoSetTankRole == nil then TankBuffReminderDB.autoSetTankRole = cfg.defaults.autoSetTankRole end
-        
-        TankBuffReminder_RebuildTrackedBuffs()
-        ApplyGlowSettings(frame)
-
-        if not initialLoadDone then
-            local _, class = UnitClass("player")
-            print("|cff00ccff[TankBuffReminder]|r Loaded for " .. class)
-            initialLoadDone = true
+        for k, v in pairs(cfg.defaults) do if TankBuffReminderDB[k] == nil then TankBuffReminderDB[k] = v end end
+        frame:ClearAllPoints()
+        if TankBuffReminderDB.f1_pos then 
+            frame:SetPoint(TankBuffReminderDB.f1_pos.p, UIParent, TankBuffReminderDB.f1_pos.rp, TankBuffReminderDB.f1_pos.x, TankBuffReminderDB.f1_pos.y) 
+        else 
+            frame:SetPoint("CENTER", UIParent, "CENTER", 0, -150) 
         end
-        C_Timer.After(0.5, UpdateVisibility)
-
-    elseif event == "PLAYER_ENTERING_WORLD" or event == "GROUP_ROSTER_UPDATE" then
+        ApplyScale(frame, TankBuffReminderDB.scale or 1)
+        TankBuffReminder_RebuildTrackedBuffs()
+    elseif event == "MERCHANT_SHOW" then DoAutoRepair()
+    elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then OnCombatLogEvent()
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        if frame.needsSpell then frame:SetAttribute("spell1", frame.needsSpell); frame.needsSpell = nil end
         SetTankRole()
         UpdateVisibility()
-
-    elseif event == "UNIT_AURA" and unit == "player" then
-        UpdateVisibility()
-
-    elseif event == "PLAYER_REGEN_ENABLED" then
-        if frame.needsSpell then
-            frame:SetAttribute("type1", "spell")
-            frame:SetAttribute("spell1", frame.needsSpell)
-            frame.needsSpell = nil
-        end
+    elseif event == "UNIT_AURA" or event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" then
+        if event == "GROUP_ROSTER_UPDATE" then SetTankRole() end
         UpdateVisibility()
     end
 end)
 
-frame:SetAlpha(0.001)
+frame:SetScript("OnUpdate", function(self, elapsed)
+    local speed = TankBuffReminderDB.pulseSpeed or 4
+    if speed > 0 and self:GetAlpha() > 0.05 then
+        local a = 0.75 + math.sin(GetTime() * speed) * 0.25
+        self:SetAlpha(a)
+        self.glow:SetAlpha(a - 0.2)
+    elseif speed == 0 then
+        self:SetAlpha(1)
+        self.glow:SetAlpha(0.6)
+    end
+end)
+
+C_Timer.NewTicker(CHECK_INTERVAL, UpdateVisibility)

@@ -1,14 +1,35 @@
 -- Config.lua
 TankBuffReminderConfig = {
     buffs = {
-        { key = "righteousFury",     spellID = 25780, name = "Righteous Fury" },
-        { key = "devotionAura",      spellID = 10293, name = "Devotion Aura" },
-        { key = "battleShout",       spellID = 2048,  name = "Battle Shout" },
-        { key = "commandingShout",   spellID = 469,   name = "Commanding Shout" },
-        { key = "defensiveStance",   spellID = 71,    name = "Defensive Stance" },
-        { key = "thorns",            spellID = 26992, name = "Thorns" },
-        { key = "markOfTheWild",     spellID = 26990, name = "Mark of the Wild" },
-        { key = "omenOfClarity",     spellID = 16864, name = "Omen of Clarity" },
+        -- Paladin
+        { key = "righteousFury",   spellID = 25780, name = "Righteous Fury" },
+        { key = "devotionAura",    spellID = 10293, name = "Devotion Aura" },
+        
+        -- Warrior
+        { key = "battleShout",     spellID = 2048,  name = "Battle Shout" },
+        { key = "commandingShout", spellID = 469,   name = "Commanding Shout" },
+        { key = "defensiveStance", spellID = 71,    name = "Defensive Stance" },
+        
+        -- Druid
+        { key = "thorns",          spellID = 26992, name = "Thorns" },
+        { key = "markOfTheWild",   spellID = 26990, name = "Mark of the Wild" },
+        { key = "omenOfClarity",   spellID = 16864, name = "Omen of Clarity" },
+    },
+
+    -- Expanded Taunt List for Combat Log monitoring
+    tauntSpells = {
+        -- Warrior
+        [355]   = true, -- Taunt
+        [1161]  = true, -- Challenging Shout (AOE)
+        [694]   = true, -- Mocking Blow
+        
+        -- Druid
+        [6795]  = true, -- Growl
+        [5209]  = true, -- Challenging Roar (AOE)
+        
+        -- Paladin
+        [31789] = true, -- Righteous Defense
+        [20736] = true, -- Distracting Shot (SoD/Classic)
     },
 
     sounds = {
@@ -25,6 +46,8 @@ TankBuffReminderConfig = {
         glowSize = 1.5,
         glowColor = { r = 1, g = 1, b = 0.6, a = 1 },
         autoRemoveSalvation = true,
-		autoSetTankRole = true,
+        autoSetTankRole = true,
+        autoRepair = true, 
+        tauntAlert = true,
     }
 }

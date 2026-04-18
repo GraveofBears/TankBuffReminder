@@ -17,41 +17,28 @@ title:SetText("Tank Buff Reminder")
 local function SyncSettings()
     if not TankBuffReminderDB then return end
     
-    -- Sync checkboxes
+    -- Sync checkboxes (Class Buffs)
     for key, cb in pairs(panel.checkboxes) do
         TankBuffReminderDB[key] = cb:GetChecked() and true or false
     end
     
-    -- Sync sound toggle
-    if panel.soundCB then
-        TankBuffReminderDB.playSound = panel.soundCB:GetChecked() and true or false
-    end
-
-    -- Sync Salvation toggle
-    if panel.salvationCB then
-        TankBuffReminderDB.autoRemoveSalvation = panel.salvationCB:GetChecked() and true or false
-    end
-
-    -- Sync Tank Role toggle
-    if panel.tankRoleCB then
-        TankBuffReminderDB.autoSetTankRole = panel.tankRoleCB:GetChecked() and true or false
-    end
+    -- Sync Global Toggles
+    TankBuffReminderDB.playSound = panel.soundCB:GetChecked()
+    TankBuffReminderDB.autoRemoveSalvation = panel.salvationCB:GetChecked()
+    TankBuffReminderDB.autoSetTankRole = panel.tankRoleCB:GetChecked()
+    TankBuffReminderDB.autoRepair = panel.repairCB:GetChecked()
+    TankBuffReminderDB.tauntAlert = panel.tauntCB:GetChecked()
 
     -- Sync sliders
-    if panel.pulseSlider then
-        TankBuffReminderDB.pulseSpeed = panel.pulseSlider:GetValue()
-    end
-    
-    if panel.glowSlider then
-        TankBuffReminderDB.glowSize = panel.glowSlider:GetValue()
-    end
+    TankBuffReminderDB.pulseSpeed = panel.pulseSlider:GetValue()
+    TankBuffReminderDB.glowSize = panel.glowSlider:GetValue()
 
-    -- Trigger immediate visual update for the glow (Size and Color)
+    -- Trigger immediate visual update for the glow in the main script
     if TankBuffReminder_UpdateGlow then 
         TankBuffReminder_UpdateGlow() 
     end
 
-    -- FORCE the main script to rebuild the tracking list immediately
+    -- Force the main script to rebuild tracking lists
     if TankBuffReminder_RebuildTrackedBuffs then
         TankBuffReminder_RebuildTrackedBuffs()
     end
@@ -64,11 +51,7 @@ local function CreateCheckbox(parent, label, x, y)
     local cb = CreateFrame("CheckButton", nil, parent, "InterfaceOptionsCheckButtonTemplate")
     cb:SetPoint("TOPLEFT", x, y)
     cb.Text:SetText(label)
-    
-    cb:SetScript("OnClick", function()
-        SyncSettings()
-    end)
-    
+    cb:SetScript("OnClick", function() SyncSettings() end)
     return cb
 end
 
@@ -86,13 +69,13 @@ local function CreateSlider(parent, label, min, max, x, y, uniqueName)
     slider:SetValueStep(0.1)
     slider:SetObeyStepOnDrag(true)
     slider:SetWidth(180)
-    
     _G[uniqueName .. "Text"]:SetText(label)
     _G[uniqueName .. "Low"]:SetText(tostring(min))
     _G[uniqueName .. "High"]:SetText(tostring(max))
     
-    slider:SetScript("OnValueChanged", function()
-        SyncSettings()
+    -- Sync immediately on slider movement
+    slider:SetScript("OnValueChanged", function() 
+        SyncSettings() 
     end)
     return slider
 end
@@ -101,9 +84,8 @@ local function CreateSoundDropdown(parent, x, y)
     local dropdown = CreateFrame("Frame", "TankBuffReminderSoundDropdown", parent, "UIDropDownMenuTemplate")
     dropdown:SetPoint("TOPLEFT", x, y)
     UIDropDownMenu_SetWidth(dropdown, 150)
-    UIDropDownMenu_SetText(dropdown, "Select Sound")
-
-    UIDropDownMenu_Initialize(dropdown, function(self, level, menuList)
+    
+    UIDropDownMenu_Initialize(dropdown, function(self, level)
         local info = UIDropDownMenu_CreateInfo()
         if not cfg.sounds then return end
         for _, sound in ipairs(cfg.sounds) do
@@ -126,19 +108,16 @@ local function CreateColorButton(parent, label, x, y)
     local btn = CreateFrame("Button", nil, parent)
     btn:SetSize(18, 18)
     btn:SetPoint("TOPLEFT", x, y)
-    
     local bg = btn:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
     bg:SetColorTexture(1, 1, 1, 1)
     btn.bg = bg
-    
     local text = btn:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     text:SetPoint("LEFT", btn, "RIGHT", 8, 0)
     text:SetText(label)
 
     btn:SetScript("OnClick", function()
         local color = TankBuffReminderDB.glowColor or cfg.defaults.glowColor
-        
         ColorPickerFrame:SetupColorPickerAndShow({
             swatchFunc = function()
                 local r, g, b = ColorPickerFrame:GetColorRGB()
@@ -147,20 +126,7 @@ local function CreateColorButton(parent, label, x, y)
                 btn.bg:SetVertexColor(r, g, b, a)
                 SyncSettings()
             end,
-            opacityFunc = function()
-                local r, g, b = ColorPickerFrame:GetColorRGB()
-                local a = ColorPickerFrame:GetColorAlpha()
-                TankBuffReminderDB.glowColor = { r = r, g = g, b = b, a = a }
-                btn.bg:SetVertexColor(r, g, b, a)
-                SyncSettings()
-            end,
-            cancelFunc = function()
-                TankBuffReminderDB.glowColor = color
-                btn.bg:SetVertexColor(color.r, color.g, color.b, color.a)
-                SyncSettings()
-            end,
-            r = color.r, g = color.g, b = color.b, opacity = color.a,
-            hasOpacity = true
+            r = color.r, g = color.g, b = color.b, opacity = color.a, hasOpacity = true
         })
     end)
     return btn
@@ -172,6 +138,7 @@ end
 panel.checkboxes = {}
 local y = -60
 
+-- Column 1: Class Buffs
 local sections = {
     { name = "Paladin", keys = {"righteousFury", "devotionAura"} },
     { name = "Druid",   keys = {"thorns", "markOfTheWild", "omenOfClarity"} },
@@ -192,34 +159,30 @@ for _, section in ipairs(sections) do
     y = y - 10
 end
 
--- Global Settings Column
-panel.soundCB = CreateCheckbox(panel, "Play alert sound", 250, -60)
-panel.soundDropdown = CreateSoundDropdown(panel, 235, -100)
-panel.pulseSlider = CreateSlider(panel, "Pulse Speed", 0, 10, 250, -160, "TBR_PulseSlider")
-panel.glowSlider = CreateSlider(panel, "Glow Size", 1.0, 3.0, 250, -220, "TBR_GlowSlider")
-
--- Automation Settings
-panel.salvationCB = CreateCheckbox(panel, "Auto-remove Salvation (Tanking)", 250, -270)
-panel.tankRoleCB = CreateCheckbox(panel, "Auto-set Tank Role in Party", 250, -300)
+-- Column 2: Global & Automation
+local x2 = 250
+panel.soundCB = CreateCheckbox(panel, "Play alert sound", x2, -60)
+panel.soundDropdown = CreateSoundDropdown(panel, x2-15, -100)
+panel.pulseSlider = CreateSlider(panel, "Pulse Speed", 0, 10, x2, -160, "TBR_PulseSlider")
+panel.glowSlider = CreateSlider(panel, "Glow Size", 1.0, 3.0, x2, -220, "TBR_GlowSlider")
 
 -- Appearance
-panel.colorBtn = CreateColorButton(panel, "Glow Color", 254, -330)
+panel.colorBtn = CreateColorButton(panel, "Glow Color", x2+4, -260)
+
+-- Automation Headers & Toggles
+CreateHeader(panel, "Automation", x2, -300)
+panel.salvationCB = CreateCheckbox(panel, "Auto-remove Salvation", x2, -320)
+panel.tankRoleCB = CreateCheckbox(panel, "Auto-set Tank Role", x2, -345)
+panel.repairCB = CreateCheckbox(panel, "Auto-Repair at Merchant", x2, -370)
+panel.tauntCB = CreateCheckbox(panel, "Taunt Miss Alert (Chat)", x2, -395)
 
 -- Reset Button
 local resetBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
 resetBtn:SetSize(180, 24)
-resetBtn:SetPoint("TOPLEFT", 250, -370)
-resetBtn:SetText("Reset Position & Size")
+resetBtn:SetPoint("TOPLEFT", x2, -450)
+resetBtn:SetText("Reset All Settings")
 resetBtn:SetScript("OnClick", function()
-    TankBuffReminderDB.point = nil
-    TankBuffReminderDB.relPoint = nil
-    TankBuffReminderDB.x = nil
-    TankBuffReminderDB.y = nil
-    TankBuffReminderDB.scale = 1
-    TankBuffReminderDB.glowSize = cfg.defaults.glowSize
-    TankBuffReminderDB.glowColor = nil
-    TankBuffReminderDB.autoRemoveSalvation = cfg.defaults.autoRemoveSalvation
-    TankBuffReminderDB.autoSetTankRole = cfg.defaults.autoSetTankRole
+    TankBuffReminderDB = nil
     ReloadUI()
 end)
 
@@ -229,45 +192,44 @@ end)
 function panel.refresh()
     if not TankBuffReminderDB then return end
     
+    -- Refresh Checkboxes
     for key, cb in pairs(panel.checkboxes) do
-        local saved = TankBuffReminderDB[key]
-        cb:SetChecked(saved ~= false)
+        cb:SetChecked(TankBuffReminderDB[key] ~= false)
     end
     
+    -- Refresh Toggles
     panel.soundCB:SetChecked(TankBuffReminderDB.playSound ~= false)
+    panel.salvationCB:SetChecked(TankBuffReminderDB.autoRemoveSalvation ~= false)
+    panel.tankRoleCB:SetChecked(TankBuffReminderDB.autoSetTankRole ~= false)
+    panel.repairCB:SetChecked(TankBuffReminderDB.autoRepair ~= false)
+    panel.tauntCB:SetChecked(TankBuffReminderDB.tauntAlert ~= false)
+
+    -- Refresh Sliders
+    panel.pulseSlider:SetValue(TankBuffReminderDB.pulseSpeed or 4)
+    panel.glowSlider:SetValue(TankBuffReminderDB.glowSize or 1.5)
     
-    if panel.salvationCB then
-        panel.salvationCB:SetChecked(TankBuffReminderDB.autoRemoveSalvation ~= false)
-    end
-
-    if panel.tankRoleCB then
-        panel.tankRoleCB:SetChecked(TankBuffReminderDB.autoSetTankRole ~= false)
-    end
-
-    local speed = TankBuffReminderDB.pulseSpeed or (cfg.defaults and cfg.defaults.pulseSpeed) or 4
-    panel.pulseSlider:SetValue(speed)
-
-    local gSize = TankBuffReminderDB.glowSize or (cfg.defaults and cfg.defaults.glowSize) or 1.5
-    panel.glowSlider:SetValue(gSize)
-
-    local c = TankBuffReminderDB.glowColor or cfg.defaults.glowColor
+    -- Refresh Color
+    local c = TankBuffReminderDB.glowColor or cfg.defaults.glowColor or {r=1, g=1, b=1, a=1}
     panel.colorBtn.bg:SetVertexColor(c.r, c.g, c.b, c.a)
 
-    local currentSoundID = TankBuffReminderDB.soundID or (cfg.defaults and cfg.defaults.soundID) or 8959
+    -- Refresh Dropdown Text
+    local currentSoundID = TankBuffReminderDB.soundID or 8959
     if cfg.sounds then
+        local found = false
         for _, sound in ipairs(cfg.sounds) do
-            if sound.id == currentSoundID then
+            if sound.id == currentSoundID then 
                 UIDropDownMenu_SetText(panel.soundDropdown, sound.name)
+                found = true
+                break
             end
         end
+        if not found then UIDropDownMenu_SetText(panel.soundDropdown, "Select Sound") end
     end
 end
 
-panel:SetScript("OnShow", function()
-    panel.refresh()
-end)
-
+panel:SetScript("OnShow", function() panel.refresh() end)
 panel.okay = SyncSettings
+
 local category = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
 Settings.RegisterAddOnCategory(category)
 
