@@ -16,22 +16,6 @@ TankBuffReminderConfig = {
         { key = "omenOfClarity",   spellID = 16864, name = "Omen of Clarity" },
     },
 
-    -- Expanded Taunt List for Combat Log monitoring
-    tauntSpells = {
-        -- Warrior
-        [355]   = true, -- Taunt
-        [1161]  = true, -- Challenging Shout (AOE)
-        [694]   = true, -- Mocking Blow
-        
-        -- Druid
-        [6795]  = true, -- Growl
-        [5209]  = true, -- Challenging Roar (AOE)
-        
-        -- Paladin
-        [31789] = true, -- Righteous Defense
-        [20736] = true, -- Distracting Shot (SoD/Classic)
-    },
-
     sounds = {
         { name = "Default Alert", id = 8959 },
         { name = "Bell",          id = 3175 },
@@ -48,6 +32,5 @@ TankBuffReminderConfig = {
         autoRemoveSalvation = true,
         autoSetTankRole = true,
         autoRepair = true, 
-        tauntAlert = true,
     }
 }

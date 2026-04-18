@@ -27,7 +27,6 @@ local function SyncSettings()
     TankBuffReminderDB.autoRemoveSalvation = panel.salvationCB:GetChecked()
     TankBuffReminderDB.autoSetTankRole = panel.tankRoleCB:GetChecked()
     TankBuffReminderDB.autoRepair = panel.repairCB:GetChecked()
-    TankBuffReminderDB.tauntAlert = panel.tauntCB:GetChecked()
 
     -- Sync sliders
     TankBuffReminderDB.pulseSpeed = panel.pulseSlider:GetValue()
@@ -159,7 +158,7 @@ for _, section in ipairs(sections) do
     y = y - 10
 end
 
--- Column 2: Global & Automation
+-- Column 2: Global & Appearance
 local x2 = 250
 panel.soundCB = CreateCheckbox(panel, "Play alert sound", x2, -60)
 panel.soundDropdown = CreateSoundDropdown(panel, x2-15, -100)
@@ -174,12 +173,11 @@ CreateHeader(panel, "Automation", x2, -300)
 panel.salvationCB = CreateCheckbox(panel, "Auto-remove Salvation", x2, -320)
 panel.tankRoleCB = CreateCheckbox(panel, "Auto-set Tank Role", x2, -345)
 panel.repairCB = CreateCheckbox(panel, "Auto-Repair at Merchant", x2, -370)
-panel.tauntCB = CreateCheckbox(panel, "Taunt Miss Alert (Chat)", x2, -395)
 
 -- Reset Button
 local resetBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
 resetBtn:SetSize(180, 24)
-resetBtn:SetPoint("TOPLEFT", x2, -450)
+resetBtn:SetPoint("TOPLEFT", x2, -430)
 resetBtn:SetText("Reset All Settings")
 resetBtn:SetScript("OnClick", function()
     TankBuffReminderDB = nil
@@ -202,7 +200,6 @@ function panel.refresh()
     panel.salvationCB:SetChecked(TankBuffReminderDB.autoRemoveSalvation ~= false)
     panel.tankRoleCB:SetChecked(TankBuffReminderDB.autoSetTankRole ~= false)
     panel.repairCB:SetChecked(TankBuffReminderDB.autoRepair ~= false)
-    panel.tauntCB:SetChecked(TankBuffReminderDB.tauntAlert ~= false)
 
     -- Refresh Sliders
     panel.pulseSlider:SetValue(TankBuffReminderDB.pulseSpeed or 4)
