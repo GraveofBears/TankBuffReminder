@@ -17,7 +17,7 @@
 
 ## Supported Classes & Spells
 * **Paladin**: Righteous Fury, Devotion Aura.
-* **Druid**: Thorns, Mark of the Wild (includes Gift of the Wild), Omen of Clarity.
+* **Druid**: Thorns, Mark of the Wild (includes Gift of the Wild detection), Omen of Clarity.
 * **Warrior**: Battle Shout, Commanding Shout, Defensive Stance.
 
 ## Installation
