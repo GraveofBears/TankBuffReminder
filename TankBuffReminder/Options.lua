@@ -27,6 +27,16 @@ local function SyncSettings()
         TankBuffReminderDB.playSound = panel.soundCB:GetChecked() and true or false
     end
 
+    -- Sync Salvation toggle
+    if panel.salvationCB then
+        TankBuffReminderDB.autoRemoveSalvation = panel.salvationCB:GetChecked() and true or false
+    end
+
+    -- Sync Tank Role toggle
+    if panel.tankRoleCB then
+        TankBuffReminderDB.autoSetTankRole = panel.tankRoleCB:GetChecked() and true or false
+    end
+
     -- Sync sliders
     if panel.pulseSlider then
         TankBuffReminderDB.pulseSpeed = panel.pulseSlider:GetValue()
@@ -112,7 +122,6 @@ local function CreateSoundDropdown(parent, x, y)
     return dropdown
 end
 
--- New Color Selection Helper
 local function CreateColorButton(parent, label, x, y)
     local btn = CreateFrame("Button", nil, parent)
     btn:SetSize(18, 18)
@@ -188,12 +197,18 @@ panel.soundCB = CreateCheckbox(panel, "Play alert sound", 250, -60)
 panel.soundDropdown = CreateSoundDropdown(panel, 235, -100)
 panel.pulseSlider = CreateSlider(panel, "Pulse Speed", 0, 10, 250, -160, "TBR_PulseSlider")
 panel.glowSlider = CreateSlider(panel, "Glow Size", 1.0, 3.0, 250, -220, "TBR_GlowSlider")
-panel.colorBtn = CreateColorButton(panel, "Glow Color", 254, -265)
+
+-- Automation Settings
+panel.salvationCB = CreateCheckbox(panel, "Auto-remove Salvation (Tanking)", 250, -270)
+panel.tankRoleCB = CreateCheckbox(panel, "Auto-set Tank Role in Party", 250, -300)
+
+-- Appearance
+panel.colorBtn = CreateColorButton(panel, "Glow Color", 254, -330)
 
 -- Reset Button
 local resetBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
 resetBtn:SetSize(180, 24)
-resetBtn:SetPoint("TOPLEFT", 250, -310)
+resetBtn:SetPoint("TOPLEFT", 250, -370)
 resetBtn:SetText("Reset Position & Size")
 resetBtn:SetScript("OnClick", function()
     TankBuffReminderDB.point = nil
@@ -202,7 +217,9 @@ resetBtn:SetScript("OnClick", function()
     TankBuffReminderDB.y = nil
     TankBuffReminderDB.scale = 1
     TankBuffReminderDB.glowSize = cfg.defaults.glowSize
-    TankBuffReminderDB.glowColor = nil -- Clears to default
+    TankBuffReminderDB.glowColor = nil
+    TankBuffReminderDB.autoRemoveSalvation = cfg.defaults.autoRemoveSalvation
+    TankBuffReminderDB.autoSetTankRole = cfg.defaults.autoSetTankRole
     ReloadUI()
 end)
 
@@ -218,6 +235,14 @@ function panel.refresh()
     end
     
     panel.soundCB:SetChecked(TankBuffReminderDB.playSound ~= false)
+    
+    if panel.salvationCB then
+        panel.salvationCB:SetChecked(TankBuffReminderDB.autoRemoveSalvation ~= false)
+    end
+
+    if panel.tankRoleCB then
+        panel.tankRoleCB:SetChecked(TankBuffReminderDB.autoSetTankRole ~= false)
+    end
 
     local speed = TankBuffReminderDB.pulseSpeed or (cfg.defaults and cfg.defaults.pulseSpeed) or 4
     panel.pulseSlider:SetValue(speed)
@@ -225,7 +250,6 @@ function panel.refresh()
     local gSize = TankBuffReminderDB.glowSize or (cfg.defaults and cfg.defaults.glowSize) or 1.5
     panel.glowSlider:SetValue(gSize)
 
-    -- Refresh Color Swatch
     local c = TankBuffReminderDB.glowColor or cfg.defaults.glowColor
     panel.colorBtn.bg:SetVertexColor(c.r, c.g, c.b, c.a)
 

@@ -53,6 +53,41 @@ function TankBuffReminder_UpdateGlow()
     ApplyGlowSettings(TankBuffReminderFrame)
 end
 
+-- Logic to auto-set Tank role in groups
+local function SetTankRole()
+    if not TankBuffReminderDB.autoSetTankRole then return end
+    if not IsInGroup() then return end
+    
+    -- Optional: Disable auto-set if in a Raid to avoid fighting the Raid Leader
+    if IsInRaid() then return end 
+
+    local role = UnitGroupRolesAssigned("player")
+    if role ~= "TANK" then
+        UnitSetRole("player", "TANK")
+    end
+end
+
+-- Logic to auto-remove Salvation if the option is enabled
+local function CheckSalvation()
+    if not TankBuffReminderDB.autoRemoveSalvation then return end
+
+    -- Buff names/IDs for Salvation and Greater Salvation
+    local salvationSpells = {
+        [1038] = true,  -- Blessing of Salvation
+        [25895] = true, -- Greater Blessing of Salvation
+    }
+
+    for i = 1, 40 do
+        local name, _, _, _, _, _, _, _, _, _, spellID = UnitBuff("player", i)
+        if not name then break end
+        
+        if salvationSpells[spellID] then
+            CancelUnitBuff("player", i)
+            print("|cff00ccff[TankBuffReminder]|r Auto-removed " .. name)
+        end
+    end
+end
+
 local function HasBuff(spellID)
     local targetName = GetSpellInfo(spellID)
 
@@ -220,6 +255,9 @@ end)
 -- UpdateVisibility
 -------------------------------------------------------------------------------
 function UpdateVisibility()
+    -- Run automation checks
+    CheckSalvation()
+
     local missingID, missingName, texture = GetFirstMissingSpell()
 
     if not missingID then
@@ -287,6 +325,7 @@ eventFrame:RegisterEvent("PLAYER_LOGIN")
 eventFrame:RegisterEvent("UNIT_AURA")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE") -- Detect joining groups
 
 frame:HookScript("OnClick", function(self, button)
     if button == "LeftButton" and currentSpellID then
@@ -311,6 +350,8 @@ eventFrame:SetScript("OnEvent", function(self, event, unit)
         if TankBuffReminderDB.soundID == nil then TankBuffReminderDB.soundID = cfg.defaults.soundID end
         if TankBuffReminderDB.glowSize == nil then TankBuffReminderDB.glowSize = cfg.defaults.glowSize end
         if TankBuffReminderDB.glowColor == nil then TankBuffReminderDB.glowColor = cfg.defaults.glowColor end
+        if TankBuffReminderDB.autoRemoveSalvation == nil then TankBuffReminderDB.autoRemoveSalvation = cfg.defaults.autoRemoveSalvation end
+        if TankBuffReminderDB.autoSetTankRole == nil then TankBuffReminderDB.autoSetTankRole = cfg.defaults.autoSetTankRole end
         
         TankBuffReminder_RebuildTrackedBuffs()
         ApplyGlowSettings(frame)
@@ -322,7 +363,8 @@ eventFrame:SetScript("OnEvent", function(self, event, unit)
         end
         C_Timer.After(0.5, UpdateVisibility)
 
-    elseif event == "PLAYER_ENTERING_WORLD" then
+    elseif event == "PLAYER_ENTERING_WORLD" or event == "GROUP_ROSTER_UPDATE" then
+        SetTankRole()
         UpdateVisibility()
 
     elseif event == "UNIT_AURA" and unit == "player" then
