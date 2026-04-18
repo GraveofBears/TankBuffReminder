@@ -69,9 +69,7 @@ local function CheckSalvation()
     end
 end
 
--- FIXED: Uses cached names for reliable buff detection
 local function HasBuff(entry)
-    -- Special handling for Mark/Gift of the Wild
     if entry.spellID == 26990 or entry.spellID == 26991 then
         for i = 1, 40 do
             local name = UnitBuff("player", i)
@@ -83,7 +81,6 @@ local function HasBuff(entry)
         return false
     end
 
-    -- Standard name-based check
     for i = 1, 40 do
         local name = UnitBuff("player", i)
         if not name then break end
@@ -158,7 +155,11 @@ frame:SetMovable(true)
 frame:EnableMouse(true)
 frame:SetClampedToScreen(true)
 frame:RegisterForClicks("AnyUp", "AnyDown")
+
+-- FORCED SELF-CAST SETTINGS
 frame:SetAttribute("type1", "spell")
+frame:SetAttribute("unit", "player") -- Targets you
+frame:SetAttribute("checkselfcast", true) -- Forces self-cast logic
 
 frame.glow = frame:CreateTexture(nil, "BACKGROUND", nil, 2)
 frame.glow:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
@@ -171,10 +172,15 @@ frame.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
 SetupAnimations(frame)
 
--- Handling combat lockdown for attributes
-frame:SetScript("OnAttributeChanged", function(self, name, value)
-    if name == "spell1" and InCombatLockdown() then
-        self.needsSpell = value
+frame:SetScript("OnMouseDown", function(self, button)
+    if not InCombatLockdown() and button == "LeftButton" and IsShiftKeyDown() then self:StartMoving() end
+end)
+
+frame:SetScript("OnMouseUp", function(self)
+    if not InCombatLockdown() then
+        self:StopMovingOrSizing()
+        local p, _, rp, x, y = self:GetPoint()
+        TankBuffReminderDB.f1_pos = {p=p, rp=rp, x=x, y=y}
     end
 end)
 
