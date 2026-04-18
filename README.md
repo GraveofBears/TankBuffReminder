@@ -5,6 +5,9 @@
 ## Core Features
 * **Intelligent Tracking**: Automatically detects your class and monitors essential buffs like Righteous Fury, Thorns, or specific Stance requirements.
 * **Secure Casting**: The reminder icon functions as a secure action button, allowing you to cast the missing buff directly from the UI.
+* **Automation Suite**:
+    * **Auto-Set Tank Role**: Automatically sets your role to "Tank" when joining a Party or LFG group.
+    * **Auto-Remove Salvation**: Detects and cancels "Blessing of Salvation" or "Greater Blessing of Salvation" while tanking to ensure you don't lose threat.
 * **Combat Safe**: Handles combat lockdowns gracefully, updating attributes once you leave combat to ensure no "Action Blocked" errors.
 * **Visual Customization**:
     * **Pulse Speed**: Adjust the icon's pulse from a slow glow to a fast flash.
@@ -21,9 +24,9 @@
 * **Warrior**: Battle Shout, Commanding Shout, Defensive Stance.
 
 ## Installation
-1.  Download the repository.
-2.  Extract the `TankBuffReminder` folder into your `World of Warcraft/_classic_/Interface/AddOns/` directory.
-3.  Restart WoW or reload your UI (`/reload`).
+1. Download the repository.
+2. Extract the `TankBuffReminder` folder into your `World of Warcraft/_classic_/Interface/AddOns/` directory.
+3. Restart WoW or reload your UI (`/reload`).
 
 ## Commands
 * `/tbr` — Opens the configuration and options panel.
