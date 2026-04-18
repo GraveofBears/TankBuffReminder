@@ -6,9 +6,10 @@ local cfg = TankBuffReminderConfig
 local trackedBuffs = nil
 local soundPlayed = false
 local lastTauntAlert = 0 
+local frameThrottle = 0 -- Anti-stutter timer
 
--- Localize globals used in loops/events for speed and lower memory overhead
-local UnitBuff, GetSpellInfo, InCombatLockdown = UnitBuff, GetSpellInfo, InCombatLockdown
+-- Localize globals for performance
+local UnitBuff, GetSpellInfo, InCombatLockdown, GetTime = UnitBuff, GetSpellInfo, InCombatLockdown, GetTime
 
 TankBuffReminderDB = TankBuffReminderDB or {}
 
@@ -20,7 +21,7 @@ local function SetupAnimations(f)
     local anim = f.ag:CreateAnimation("Alpha")
     anim:SetFromAlpha(1.0)
     anim:SetToAlpha(0.6)
-    anim:SetDuration(0.5) -- This will be adjusted by pulseSpeed
+    anim:SetDuration(0.5) 
     anim:SetSmoothing("IN_OUT")
     f.ag:SetLooping("BOUNCE")
 end
@@ -28,7 +29,6 @@ end
 local function UpdatePulseSpeed(f)
     local speed = TankBuffReminderDB.pulseSpeed or 4
     if speed > 0 then
-        -- Convert "Speed" into "Duration" (Higher speed = shorter duration)
         local duration = math.max(0.1, 2 / speed)
         f.ag:GetAnimations():SetDuration(duration)
         if f:GetAlpha() > 0.05 and not f.ag:IsPlaying() then f.ag:Play() end
@@ -59,8 +59,10 @@ local function ApplyScale(f, scale)
 end
 
 function TankBuffReminder_UpdateGlow()
-    ApplyGlowSettings(TankBuffReminderFrame)
-    UpdatePulseSpeed(TankBuffReminderFrame)
+    if TankBuffReminderFrame then
+        ApplyGlowSettings(TankBuffReminderFrame)
+        UpdatePulseSpeed(TankBuffReminderFrame)
+    end
 end
 
 local function DoAutoRepair()
@@ -132,21 +134,17 @@ function UpdateVisibility()
         end
     end
 
-    -- Use the global frame name to avoid "nil" errors
     local f = TankBuffReminderFrame
-    if not f then return end -- Safety check
+    if not f then return end
 
     if not missingID then
-        -- Force state reset
         f.currentSpellID = nil
         soundPlayed = false
         
-        -- Stop animations and hide
         if f.ag and f.ag:IsPlaying() then f.ag:Stop() end
         f:SetAlpha(0.01) 
         f.glow:SetAlpha(0)
         
-        -- Clear the secure attribute
         if not InCombatLockdown() then
             f:SetAttribute("spell1", nil)
         end
@@ -240,7 +238,7 @@ resize:SetScript("OnMouseUp", function(self)
 end)
 
 -------------------------------------------------------------------------------
--- Event Handler
+-- Event Handler (Throttled)
 -------------------------------------------------------------------------------
 local eF = CreateFrame("Frame")
 eF:RegisterEvent("PLAYER_LOGIN")
@@ -255,21 +253,36 @@ eF:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_LOGIN" then
         for k, v in pairs(cfg.defaults) do if TankBuffReminderDB[k] == nil then TankBuffReminderDB[k] = v end end
         if TankBuffReminderDB.f1_pos then 
-            frame:ClearAllPoints()
-            frame:SetPoint(TankBuffReminderDB.f1_pos.p, UIParent, TankBuffReminderDB.f1_pos.rp, TankBuffReminderDB.f1_pos.x, TankBuffReminderDB.f1_pos.y) 
+            TankBuffReminderFrame:ClearAllPoints()
+            TankBuffReminderFrame:SetPoint(TankBuffReminderDB.f1_pos.p, UIParent, TankBuffReminderDB.f1_pos.rp, TankBuffReminderDB.f1_pos.x, TankBuffReminderDB.f1_pos.y) 
         else 
-            frame:SetPoint("CENTER", UIParent, "CENTER", 0, -150) 
+            TankBuffReminderFrame:SetPoint("CENTER", UIParent, "CENTER", 0, -150) 
         end
-        ApplyScale(frame, TankBuffReminderDB.scale or 1)
+        ApplyScale(TankBuffReminderFrame, TankBuffReminderDB.scale or 1)
         TankBuffReminder_RebuildTrackedBuffs()
-    elseif event == "MERCHANT_SHOW" then DoAutoRepair()
-    elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then OnCombatLogEvent()
-    elseif event == "PLAYER_REGEN_ENABLED" then
-        if frame.needsSpell then frame:SetAttribute("spell1", frame.needsSpell); frame.needsSpell = nil end
-        SetTankRole()
-        UpdateVisibility()
-    elseif event == "UNIT_AURA" or event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" then
-        if event == "GROUP_ROSTER_UPDATE" then SetTankRole() end
-        UpdateVisibility()
+        
+    elseif event == "MERCHANT_SHOW" then 
+        DoAutoRepair()
+        
+    elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then 
+        OnCombatLogEvent()
+        
+    else
+        -- Throttle UNIT_AURA, GROUP_ROSTER, etc to 0.1s to prevent micro-stutter
+        local now = GetTime()
+        if (now - frameThrottle) > 0.1 then
+            if event == "PLAYER_REGEN_ENABLED" then
+                if TankBuffReminderFrame.needsSpell then 
+                    TankBuffReminderFrame:SetAttribute("spell1", TankBuffReminderFrame.needsSpell)
+                    TankBuffReminderFrame.needsSpell = nil 
+                end
+                SetTankRole()
+            elseif event == "GROUP_ROSTER_UPDATE" then 
+                SetTankRole() 
+            end
+            
+            UpdateVisibility()
+            frameThrottle = now
+        end
     end
 end)
