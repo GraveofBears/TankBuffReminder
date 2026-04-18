@@ -16,6 +16,7 @@ local cfg = TankBuffReminderConfig
 local currentSpellID = nil
 local trackedBuffs = nil
 local soundPlayed = false
+local initialLoadDone = false
 
 TankBuffReminderDB = TankBuffReminderDB or {}
 local db = TankBuffReminderDB
@@ -80,8 +81,10 @@ frame:EnableMouse(true)
 frame:SetClampedToScreen(true)
 frame:RegisterForClicks("AnyUp", "AnyDown")
 
-frame:SetAttribute("type1", "macro")
-frame:SetAttribute("macrotext1", "")
+-- Force the button to target the player to avoid losing your current target
+frame:SetAttribute("unit", "player")
+frame:SetAttribute("type1", "spell")
+frame:SetAttribute("spell1", "")
 
 if db.point then
     frame:SetPoint(db.point, UIParent, db.relPoint, db.x, db.y)
@@ -205,10 +208,10 @@ function UpdateVisibility()
     currentSpellID = missingID
 
     if not InCombatLockdown() then
-        frame:SetAttribute("type1", "macro")
-        frame:SetAttribute("macrotext1", "/cast " .. missingName)
+        frame:SetAttribute("type1", "spell")
+        frame:SetAttribute("spell1", missingName)
     else
-        frame.needsMacro = missingName
+        frame.needsSpell = missingName
     end
 
     icon:SetTexture(texture or "Interface\\Icons\\INV_Misc_QuestionMark")
@@ -267,7 +270,7 @@ eventFrame:SetScript("OnUpdate", function(self, elapsed)
 end)
 
 eventFrame:SetScript("OnEvent", function(self, event, unit)
-    if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
+    if event == "PLAYER_LOGIN" then
         -- Apply global defaults only if they don't exist
         if TankBuffReminderDB.playSound == nil then TankBuffReminderDB.playSound = cfg.defaults.playSound end
         if TankBuffReminderDB.pulseSpeed == nil then TankBuffReminderDB.pulseSpeed = cfg.defaults.pulseSpeed end
@@ -276,21 +279,27 @@ eventFrame:SetScript("OnEvent", function(self, event, unit)
         -- Build the list based on current DB state
         TankBuffReminder_RebuildTrackedBuffs()
 
-        local _, class = UnitClass("player")
-        print("|cff00ccff[TankBuffReminder]|r Loaded for " .. class)
+        if not initialLoadDone then
+            local _, class = UnitClass("player")
+            print("|cff00ccff[TankBuffReminder]|r Loaded for " .. class)
+            initialLoadDone = true
+        end
         C_Timer.After(0.5, UpdateVisibility)
+
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        UpdateVisibility()
 
     elseif event == "UNIT_AURA" and unit == "player" then
         UpdateVisibility()
 
     elseif event == "PLAYER_REGEN_ENABLED" then
-        if frame.needsMacro then
-            frame:SetAttribute("type1", "macro")
-            frame:SetAttribute("macrotext1", "/cast " .. frame.needsMacro)
-            frame.needsMacro = nil
+        if frame.needsSpell then
+            frame:SetAttribute("type1", "spell")
+            frame:SetAttribute("spell1", frame.needsSpell)
+            frame.needsSpell = nil
         end
         UpdateVisibility()
     end
 end)
 
-frame:SetAlpha(0.01)
+frame:SetAlpha(0.001)
