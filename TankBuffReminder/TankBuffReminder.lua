@@ -35,25 +35,43 @@ function TankBuffReminder_UpdateGlow()
     ApplyGlowSettings(TankBuffReminderFrame)
 end
 
+-- Global function to safely set role
+function TankBuffReminder_SetRoleLogic()
+    if not TankBuffReminderDB.autoSetTankRole or InCombatLockdown() or not IsInGroup() then return end
+    
+    -- Safety Check: Never auto-set roles if in a Raid
+    if IsInRaid() then return end
+
+    -- Only call the server functions if our role isn't already correct
+    local currentRole = UnitGroupRolesAssigned("player")
+    local isMainTank = GetPartyAssignment("MAINTANK", "player")
+
+    if currentRole ~= "TANK" or isMainTank == nil then
+        pcall(function()
+            if currentRole ~= "TANK" then
+                UnitSetRole("player", "TANK")
+            end
+            if isMainTank == nil then
+                SetPartyAssignment("MAINTANK", "player")
+            end
+        end)
+    end
+end
+
 local function HasBuff(spellID)
     local targetName = GetSpellInfo(spellID)
-    
-    -- Improved logic for Mark/Gift of the Wild
     if spellID == 26990 or spellID == 26991 or targetName == "Mark of the Wild" then
         for i = 1, 40 do
             local name = UnitBuff("player", i)
             if not name then break end
-            if name == "Mark of the Wild" or name == "Gift of the Wild" then 
-                return true 
-            end
+            if name == "Mark of the Wild" or name == "Gift of the Wild" then return true end
         end
         return false
     end
-
     for i = 1, 40 do
-        local name, _, _, _, _, _, _, _, _, _, auraSpellID = UnitBuff("player", i)
+        local name = UnitBuff("player", i)
         if not name then break end
-        if auraSpellID == spellID or name == targetName then return true end
+        if name == targetName then return true end
     end
     return false
 end
@@ -71,12 +89,7 @@ local function DoAutomation()
         end
     end
     
-    -- Tank Role Assignment
-    if TankBuffReminderDB.autoSetTankRole and IsInGroup() and not InCombatLockdown() then
-        if GetPartyAssignment("MAINTANK", "player") == nil then
-            SetPartyAssignment("MAINTANK", "player")
-        end
-    end
+    TankBuffReminder_SetRoleLogic()
 end
 
 -------------------------------------------------------------------------------
@@ -100,13 +113,11 @@ function UpdateVisibility()
     if not missingID then
         currentSpellID = nil
         soundPlayed = false
-        f:SetAlpha(0.001) -- Reverted to original faded-out style
+        f:SetAlpha(0.001) 
         f.glow:SetAlpha(0)
-        f.needsSpell = nil 
         return
     end
 
-    -- Play Sound
     if f:GetAlpha() <= 0.05 and not soundPlayed then
         if TankBuffReminderDB.playSound ~= false then
             PlaySound(TankBuffReminderDB.soundID or cfg.defaults.soundID or 8959, "Master")
@@ -117,18 +128,15 @@ function UpdateVisibility()
     currentSpellID = missingID
     f.icon:SetTexture(texture or "Interface\\Icons\\INV_Misc_QuestionMark")
 
-    -- Secure Attribute Updates
     if not InCombatLockdown() then
         f:SetAttribute("type1", "spell")
         f:SetAttribute("spell1", missingName)
-        f.needsSpell = nil
+        f:SetAttribute("macrotext1", "/run TankBuffReminder_SetRoleLogic()")
     else
-        -- If in combat and the button is showing a different spell, queue it
         if f:GetAttribute("spell1") ~= missingName then
             f.needsSpell = missingName
         end
     end
-    
     f:SetAlpha(1)
 end
 
@@ -159,11 +167,6 @@ frame:SetScript("OnUpdate", function(self, elapsed)
         return 
     end
     local speed = TankBuffReminderDB.pulseSpeed or cfg.defaults.pulseSpeed or 4
-    if speed <= 0 then
-        self:SetAlpha(1)
-        self.glow:SetAlpha(0.6)
-        return
-    end
     pulseTimer = pulseTimer + elapsed
     local alpha = 0.75 + math.sin(pulseTimer * speed) * 0.25
     self:SetAlpha(alpha)
@@ -175,13 +178,12 @@ frame:SetScript("OnEnter", function(self)
     if currentSpellID then GameTooltip:SetSpellByID(currentSpellID) 
     else GameTooltip:SetText("Tank Buff Reminder") end
     GameTooltip:AddLine(" ")
-    GameTooltip:AddLine("Left-click to cast", 1, 1, 1)
+    GameTooltip:AddLine("Left-click to cast & set role", 1, 1, 1)
     GameTooltip:AddLine("Shift + drag to move", 0.8, 0.8, 0.8)
     GameTooltip:Show()
 end)
 frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
--- Movement & Resize
 frame:SetScript("OnMouseDown", function(self, button)
     if not InCombatLockdown() and button == "LeftButton" and IsShiftKeyDown() then 
         self:StartMoving() 
@@ -248,11 +250,13 @@ eF:RegisterEvent("PLAYER_LOGIN")
 eF:RegisterEvent("UNIT_AURA")
 eF:RegisterEvent("PLAYER_REGEN_ENABLED")
 eF:RegisterEvent("MERCHANT_SHOW")
+eF:RegisterEvent("GROUP_ROSTER_UPDATE")
 
+local elapsedTotal = 0
 eF:SetScript("OnUpdate", function(self, elapsed)
-    pulseTimer = pulseTimer + elapsed
-    if pulseTimer >= CHECK_INTERVAL then
-        -- We use pulseTimer only for the sin wave, but reuse it for the ticker
+    elapsedTotal = elapsedTotal + elapsed
+    if elapsedTotal >= CHECK_INTERVAL then
+        elapsedTotal = 0
         UpdateVisibility()
     end
 end)
@@ -270,6 +274,9 @@ eF:SetScript("OnEvent", function(self, event)
             local cost = GetRepairAllCost()
             if cost > 0 and GetMoney() >= cost then RepairAllItems() end
         end
+    elseif event == "GROUP_ROSTER_UPDATE" then
+        -- Force an immediate check when group changes
+        UpdateVisibility()
     elseif event == "PLAYER_REGEN_ENABLED" then
         if frame.needsSpell then
             frame:SetAttribute("spell1", frame.needsSpell)
