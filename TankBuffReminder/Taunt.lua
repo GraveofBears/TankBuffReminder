@@ -2,7 +2,7 @@
 local addonName = ...
 local cfg = TankBuffReminderConfig
 
--- Performance Locals (Faster than global lookups)
+-- Performance Locals
 local CombatLogGetCurrentEventInfo = CombatLogGetCurrentEventInfo
 local UnitGUID = UnitGUID
 local GetTime = GetTime
@@ -12,13 +12,13 @@ local table_concat = table.concat
 
 -- State Variables
 local lastAlertTime = 0
-local SPAM_THROTTLE = 2.5 -- Prevents chat flooding
+local SPAM_THROTTLE = 2.5 
 local isThrottling = false
 local pvpShield = false
-local resistBuffer = {}
+local resistBuffer = {} -- Now stores tables: {name, type}
 local playerGUID = nil
 
--- Optimized Spell Map (IDs are faster than string names)
+-- Optimized Spell Map
 local tauntSpells = {
     [355]   = true, -- Taunt (Warrior)
     [1161]  = true, -- Challenging Shout (Warrior AOE)
@@ -33,26 +33,27 @@ local function ProcessResistBuffer()
     isThrottling = false
     if #resistBuffer == 0 then return end
 
-    -- Remove duplicates (common in AOE logic)
-    local uniqueNames = {}
+    local formattedEntries = {}
     local hash = {}
-    for _, name in ipairs(resistBuffer) do
-        if not hash[name] then
-            table_insert(uniqueNames, name)
-            hash[name] = true
+
+    for _, data in ipairs(resistBuffer) do
+        local entryString = string.format("%s (%s)", data.name, data.mType)
+        if not hash[entryString] then
+            table_insert(formattedEntries, entryString)
+            hash[entryString] = true
         end
     end
     
-    local nameList = table_concat(uniqueNames, ", ")
-    local msg = "TAUNT FAILED: " .. nameList .. " (Resist/Immune)"
+    local combinedList = table_concat(formattedEntries, ", ")
+    local msg = "TAUNT FAILED: " .. combinedList
     table_wipe(resistBuffer)
 
-    -- 1. Warning (Self Only - Chat Window)
+    -- 1. Warning (Self Only)
     if TankBuffReminderDB.tauntWarning ~= false then
         print("|cFFFF0000[TBR]|r " .. msg)
     end
 
-    -- 2. External Channels (Only if in a group)
+    -- 2. External Channels
     if IsInGroup() then
         if TankBuffReminderDB.tauntSay then
             SendChatMessage(msg, "SAY")
@@ -71,21 +72,24 @@ tF:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 
 tF:SetScript("OnEvent", function(self, event)
     if event == "COMBAT_LOG_EVENT_UNFILTERED" then
-        -- Exit immediately if system is off or in PvP
         if not TankBuffReminderDB.tauntEnabled or pvpShield then return end
 
         local _, subEvent, _, sourceGUID, _, _, _, _, destName, _, _, spellID, _, _, missType = CombatLogGetCurrentEventInfo()
 
-        -- Filter: Only player spells + failed casts (Resist/Immune/Miss)
+        -- Filter: Only player spells + SPELL_MISSED
         if sourceGUID == playerGUID and subEvent == "SPELL_MISSED" then
             if tauntSpells[spellID] then
+                -- Normalize the string for the message
+                local mType = "Miss"
+                if missType == "RESIST" then mType = "Resist"
+                elseif missType == "IMMUNE" then mType = "Immune" end
+
                 if missType == "RESIST" or missType == "IMMUNE" or missType == "MISS" then
-                    -- Throttle check to prevent spamming the buffer itself
                     local now = GetTime()
                     if (now - lastAlertTime) > SPAM_THROTTLE then
-                        table_insert(resistBuffer, destName or "Unknown")
+                        -- Store as a small table for processing
+                        table_insert(resistBuffer, { name = destName or "Unknown", mType = mType })
                         
-                        -- Batch AOE results (waits 0.1s to see if other mobs also resist)
                         if not isThrottling then
                             isThrottling = true
                             lastAlertTime = now
@@ -97,7 +101,6 @@ tF:SetScript("OnEvent", function(self, event)
         end
 
     elseif event == "PLAYER_ENTERING_WORLD" then
-        -- Cache GUID and Check for PvP Zone (Disable logic in BGs/Arena)
         playerGUID = UnitGUID("player")
         local _, instanceType = IsInInstance()
         pvpShield = (instanceType == "pvp" or instanceType == "arena")
