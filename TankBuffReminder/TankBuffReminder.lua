@@ -8,6 +8,7 @@ local currentSpellID = nil
 local trackedBuffs = nil
 local soundPlayed = false
 local pulseTimer = 0
+local isZoning = false -- Zoning Shield Variable
 
 TankBuffReminderDB = TankBuffReminderDB or {}
 
@@ -96,6 +97,9 @@ end
 -- Visibility & Logic
 -------------------------------------------------------------------------------
 function UpdateVisibility()
+    -- Shield: Do nothing if we are in a loading screen or just finished one
+    if isZoning then return end
+
     DoAutomation()
     
     local missingID, missingName, texture = nil, nil, nil
@@ -251,6 +255,7 @@ eF:RegisterEvent("UNIT_AURA")
 eF:RegisterEvent("PLAYER_REGEN_ENABLED")
 eF:RegisterEvent("MERCHANT_SHOW")
 eF:RegisterEvent("GROUP_ROSTER_UPDATE")
+eF:RegisterEvent("PLAYER_ENTERING_WORLD") -- Event for teleporting/zoning
 
 local elapsedTotal = 0
 eF:SetScript("OnUpdate", function(self, elapsed)
@@ -262,7 +267,14 @@ eF:SetScript("OnUpdate", function(self, elapsed)
 end)
 
 eF:SetScript("OnEvent", function(self, event)
-    if event == "PLAYER_LOGIN" then
+    if event == "PLAYER_ENTERING_WORLD" then
+        -- We are zoning. Silence checks for 2 seconds.
+        isZoning = true
+        C_Timer.After(2, function() 
+            isZoning = false 
+            UpdateVisibility()
+        end)
+    elseif event == "PLAYER_LOGIN" then
         for k, v in pairs(cfg.defaults) do if TankBuffReminderDB[k] == nil then TankBuffReminderDB[k] = v end end
         if TankBuffReminderDB.f1_pos then 
             frame:SetPoint(TankBuffReminderDB.f1_pos.p, UIParent, TankBuffReminderDB.f1_pos.rp, TankBuffReminderDB.f1_pos.x, TankBuffReminderDB.f1_pos.y) 
@@ -275,7 +287,6 @@ eF:SetScript("OnEvent", function(self, event)
             if cost > 0 and GetMoney() >= cost then RepairAllItems() end
         end
     elseif event == "GROUP_ROSTER_UPDATE" then
-        -- Force an immediate check when group changes
         UpdateVisibility()
     elseif event == "PLAYER_REGEN_ENABLED" then
         if frame.needsSpell then
