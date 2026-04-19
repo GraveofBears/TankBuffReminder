@@ -31,6 +31,13 @@ TankBuffReminderConfig = {
         glowColor = { r = 1, g = 1, b = 0.6, a = 1 },
         autoRemoveSalvation = true,
         autoSetTankRole = true,
-        autoRepair = true, 
+        autoRepair = true,
+        
+        -- Taunt System Defaults
+        tauntEnabled = true,   -- Enables/disables the detection logic
+        tauntWarning = true,   -- Self-only warning message in chat
+        tauntSay     = false,  -- Send message to /say
+        tauntParty   = false,  -- Send message to /party
+        tauntRaid    = false,  -- Send message to /raid
     }
 }

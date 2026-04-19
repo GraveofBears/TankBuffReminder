@@ -8,7 +8,8 @@ local currentSpellID = nil
 local trackedBuffs = nil
 local soundPlayed = false
 local pulseTimer = 0
-local isZoning = false -- Zoning Shield Variable
+local isZoning = false 
+local lastRoleSet = 0 -- Prevents duplicate role messages
 
 TankBuffReminderDB = TankBuffReminderDB or {}
 
@@ -36,25 +37,22 @@ function TankBuffReminder_UpdateGlow()
     ApplyGlowSettings(TankBuffReminderFrame)
 end
 
--- Global function to safely set role
+-- Global function to safely set role with throttle to prevent double messages
 function TankBuffReminder_SetRoleLogic()
+    local now = GetTime()
     if not TankBuffReminderDB.autoSetTankRole or InCombatLockdown() or not IsInGroup() then return end
     
-    -- Safety Check: Never auto-set roles if in a Raid
-    if IsInRaid() then return end
+    -- Safety Check: Never auto-set roles if in a Raid or if we just did this < 10s ago
+    if IsInRaid() or (now - lastRoleSet < 10) then return end
 
-    -- Only call the server functions if our role isn't already correct
     local currentRole = UnitGroupRolesAssigned("player")
-    local isMainTank = GetPartyAssignment("MAINTANK", "player")
 
-    if currentRole ~= "TANK" or isMainTank == nil then
+    -- Only call if the server hasn't updated our status yet
+    -- Removed SetPartyAssignment as it is a forbidden protected function
+    if currentRole ~= "TANK" then
+        lastRoleSet = now 
         pcall(function()
-            if currentRole ~= "TANK" then
-                UnitSetRole("player", "TANK")
-            end
-            if isMainTank == nil then
-                SetPartyAssignment("MAINTANK", "player")
-            end
+            UnitSetRole("player", "TANK")
         end)
     end
 end
@@ -97,7 +95,7 @@ end
 -- Visibility & Logic
 -------------------------------------------------------------------------------
 function UpdateVisibility()
-    -- Shield: Do nothing if we are in a loading screen or just finished one
+    -- Shield: Ignore logic during and immediately after loading screens
     if isZoning then return end
 
     DoAutomation()
@@ -122,6 +120,7 @@ function UpdateVisibility()
         return
     end
 
+    -- Trigger alert sound only if not already played
     if f:GetAlpha() <= 0.05 and not soundPlayed then
         if TankBuffReminderDB.playSound ~= false then
             PlaySound(TankBuffReminderDB.soundID or cfg.defaults.soundID or 8959, "Master")
@@ -135,6 +134,7 @@ function UpdateVisibility()
     if not InCombatLockdown() then
         f:SetAttribute("type1", "spell")
         f:SetAttribute("spell1", missingName)
+        -- We only attach the manual role check to the click, keeping it out of the automated loop
         f:SetAttribute("macrotext1", "/run TankBuffReminder_SetRoleLogic()")
     else
         if f:GetAttribute("spell1") ~= missingName then
@@ -255,7 +255,7 @@ eF:RegisterEvent("UNIT_AURA")
 eF:RegisterEvent("PLAYER_REGEN_ENABLED")
 eF:RegisterEvent("MERCHANT_SHOW")
 eF:RegisterEvent("GROUP_ROSTER_UPDATE")
-eF:RegisterEvent("PLAYER_ENTERING_WORLD") -- Event for teleporting/zoning
+eF:RegisterEvent("PLAYER_ENTERING_WORLD") 
 
 local elapsedTotal = 0
 eF:SetScript("OnUpdate", function(self, elapsed)
@@ -268,7 +268,6 @@ end)
 
 eF:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_ENTERING_WORLD" then
-        -- We are zoning. Silence checks for 2 seconds.
         isZoning = true
         C_Timer.After(2, function() 
             isZoning = false 
@@ -287,7 +286,8 @@ eF:SetScript("OnEvent", function(self, event)
             if cost > 0 and GetMoney() >= cost then RepairAllItems() end
         end
     elseif event == "GROUP_ROSTER_UPDATE" then
-        UpdateVisibility()
+        -- We do not call UpdateVisibility immediately here to let the game process role changes
+        C_Timer.After(1, UpdateVisibility)
     elseif event == "PLAYER_REGEN_ENABLED" then
         if frame.needsSpell then
             frame:SetAttribute("spell1", frame.needsSpell)

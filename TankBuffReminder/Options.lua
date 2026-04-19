@@ -28,6 +28,13 @@ local function SyncSettings()
     TankBuffReminderDB.autoSetTankRole = panel.tankRoleCB:GetChecked()
     TankBuffReminderDB.autoRepair = panel.repairCB:GetChecked()
 
+    -- Sync Taunt System Toggles
+    TankBuffReminderDB.tauntEnabled = panel.tauntEnabledCB:GetChecked()
+    TankBuffReminderDB.tauntWarning = panel.tauntWarningCB:GetChecked()
+    TankBuffReminderDB.tauntSay = panel.tauntSayCB:GetChecked()
+    TankBuffReminderDB.tauntParty = panel.tauntPartyCB:GetChecked()
+    TankBuffReminderDB.tauntRaid = panel.tauntRaidCB:GetChecked()
+
     -- Sync sliders
     TankBuffReminderDB.pulseSpeed = panel.pulseSlider:GetValue()
     TankBuffReminderDB.glowSize = panel.glowSlider:GetValue()
@@ -174,6 +181,15 @@ panel.salvationCB = CreateCheckbox(panel, "Auto-remove Salvation", x2, -320)
 panel.tankRoleCB = CreateCheckbox(panel, "Auto-set Tank Role", x2, -345)
 panel.repairCB = CreateCheckbox(panel, "Auto-Repair at Merchant", x2, -370)
 
+-- Column 3: Taunt System (New)
+local x3 = 460
+CreateHeader(panel, "Taunt Alerts (Failed/Resist)", x3, -60)
+panel.tauntEnabledCB = CreateCheckbox(panel, "Enable Taunt System", x3, -80)
+panel.tauntWarningCB = CreateCheckbox(panel, "Warning Message (Self)", x3, -105)
+panel.tauntSayCB     = CreateCheckbox(panel, "Announce in /Say", x3, -130)
+panel.tauntPartyCB   = CreateCheckbox(panel, "Announce in /Party", x3, -155)
+panel.tauntRaidCB    = CreateCheckbox(panel, "Announce in /Raid", x3, -180)
+
 -- Reset Button
 local resetBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
 resetBtn:SetSize(180, 24)
@@ -200,6 +216,13 @@ function panel.refresh()
     panel.salvationCB:SetChecked(TankBuffReminderDB.autoRemoveSalvation ~= false)
     panel.tankRoleCB:SetChecked(TankBuffReminderDB.autoSetTankRole ~= false)
     panel.repairCB:SetChecked(TankBuffReminderDB.autoRepair ~= false)
+
+    -- Refresh Taunt System
+    panel.tauntEnabledCB:SetChecked(TankBuffReminderDB.tauntEnabled ~= false)
+    panel.tauntWarningCB:SetChecked(TankBuffReminderDB.tauntWarning ~= false)
+    panel.tauntSayCB:SetChecked(TankBuffReminderDB.tauntSay == true)
+    panel.tauntPartyCB:SetChecked(TankBuffReminderDB.tauntParty == true)
+    panel.tauntRaidCB:SetChecked(TankBuffReminderDB.tauntRaid == true)
 
     -- Refresh Sliders
     panel.pulseSlider:SetValue(TankBuffReminderDB.pulseSpeed or 4)

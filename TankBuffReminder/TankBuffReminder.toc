@@ -7,5 +7,6 @@
 ## LoadOnDemand: 0
 
 Config.lua
+Taunt.lua
 TankBuffReminder.lua
 Options.lua
