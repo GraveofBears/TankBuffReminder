@@ -1,27 +1,27 @@
 # Tank Buff Reminder
 
-**Tank Buff Reminder** is a lightweight, combat-safe World of Warcraft addon designed to ensure you never start a pull without your essential class buffs. It displays a draggable, resizable icon when important buffs are missing, acting as a secure button to cast the missing spell with a single click.
+**Tank Buff Reminder** World of Warcraft addon designed to ensure you never start a pull without your essential class buffs or get alerts for missed/immune taunts. It displays a draggable, resizable icon when important buffs are missing, acting as a secure button to cast the missing spell with a single click.
 
 ## Core Features
 * **Intelligent Tracking**: Automatically detects your class and monitors essential buffs like Righteous Fury, Thorns, or specific Stance requirements.
+* **Taunt Alert System**: Monitors the combat log for failed taunts (Resist, Immune, or Miss). 
+    * **AOE Batching**: Condenses multi-target resists (like Challenging Shout or Righteous Defense) into a single, clean notification.
+    * **Flexible Announcing**: Toggle failure alerts for yourself, or announce them to /Say, /Party, or /Raid.
 * **Secure Casting**: The reminder icon functions as a secure action button, allowing you to cast the missing buff directly from the UI.
 * **Automation Suite**:
-    * **Auto-Set Tank Role**: Automatically sets your role to "Tank" when joining a Party or LFG group.
-    * **Auto-Remove Salvation**: Detects and cancels "Blessing of Salvation" or "Greater Blessing of Salvation" while tanking to ensure you don't lose threat.
+    * **Auto-Set Tank Role**: Automatically sets your role to "Tank" when joining a group (with built-in throttle logic to prevent duplicate chat messages).
+    * **Auto-Remove Salvation**: Automatically cancels "Blessing of Salvation" or "Greater Blessing of Salvation" to maximize threat generation.
     * **Auto-Repair**: Automatically repairs your equipment when interacting with a repair-capable merchant.
-* **Visual Customization**:
+* **Visual & Audio Customization**:
     * **Pulse Speed**: Adjust the icon's pulse from a slow glow to a fast flash.
-    * **Glow Color Picker**: Fully customize the glow color using an in-game color swatch to match your UI or class aesthetic.
-    * **Glow Scaling**: Adjust the size of the outer glow relative to the icon.
-* **Sound Selection**: Choose your preferred alert sound for both buff reminders and taunt alerts from a dropdown menu.
-* **Toggle Individual Buffs**: Disable tracking for specific spells you don't wish to maintain via the options menu.
+    * **Glow Color Picker**: Fully customize the glow color using an in-game color swatch.
+    * **Sound Selection**: Choose your preferred alert sound for both buff reminders and taunt failures from a dropdown menu.
 * **Scaling & Positioning**: Use the grabber to scale the UI (**0.5x to 3.0x**) and **Shift + Drag** to move the icon anywhere.
-* **Quick Reset**: A dedicated "Reset" button in the options to instantly restore default position, size, and colors.
 
 ## Supported Classes & Spells
-* **Paladin**: Righteous Fury, Devotion Aura.
-* **Druid**: Thorns, Mark of the Wild (includes Gift of the Wild detection), Omen of Clarity.
-* **Warrior**: Battle Shout, Commanding Shout, Defensive Stance.
+* **Paladin**: Righteous Fury, Devotion Aura, Righteous Defense.
+* **Druid**: Thorns, Mark of the Wild (includes Gift of the Wild detection), Omen of Clarity, Growl, Challenging Roar.
+* **Warrior**: Battle Shout, Commanding Shout, Defensive Stance, Taunt, Challenging Shout.
 
 ## Installation
 1. Download the repository.
@@ -33,3 +33,4 @@
 
 ---
 **Author**: Gravebear
+**Version**: 1.0.0
