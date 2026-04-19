@@ -7,7 +7,7 @@ local trackedBuffs = {}
 local soundPlayed = false
 local frameThrottle = 0 
 
--- Localize globals
+-- Localize globals for peak performance
 local UnitBuff, GetSpellInfo, InCombatLockdown, GetTime = UnitBuff, GetSpellInfo, InCombatLockdown, GetTime
 local math_max, math_min = math.max, math.min
 
@@ -77,6 +77,7 @@ local function CheckSalvation()
 end
 
 local function HasBuff(entry)
+    -- Gift/Mark of the Wild Logic
     if entry.spellID == 26990 or entry.spellID == 26991 then
         for i = 1, 40 do
             local name = UnitBuff("player", i)
@@ -87,6 +88,7 @@ local function HasBuff(entry)
         end
         return false
     end
+    -- Standard Name-based check
     for i = 1, 40 do
         local name = UnitBuff("player", i)
         if not name then break end
@@ -158,6 +160,7 @@ frame:EnableMouse(true)
 frame:SetClampedToScreen(true)
 frame:RegisterForClicks("AnyUp", "AnyDown")
 
+-- Force Self-Cast Attributes
 frame:SetAttribute("type1", "spell")
 frame:SetAttribute("unit", "player")
 frame:SetAttribute("checkselfcast", true)
@@ -173,7 +176,7 @@ frame.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
 SetupAnimations(frame)
 
--- DRAG HANDLER
+-- DRAG HANDLER (Restored)
 frame:SetScript("OnMouseDown", function(self, button)
     if not InCombatLockdown() and button == "LeftButton" and IsShiftKeyDown() then self:StartMoving() end
 end)
@@ -185,7 +188,7 @@ frame:SetScript("OnMouseUp", function(self)
     end
 end)
 
--- RESIZE HANDLER
+-- RESIZE HANDLER (Restored)
 frame:SetResizable(true)
 local resize = CreateFrame("Frame", nil, frame)
 resize:SetPoint("BOTTOMRIGHT")
