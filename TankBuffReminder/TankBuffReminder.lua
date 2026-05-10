@@ -1,302 +1,459 @@
 -- TankBuffReminder.lua
-local CHECK_INTERVAL = 1.0
-local BASE_SIZE = 64
-local SCALE_MIN, SCALE_MAX = 0.5, 3.0
+-- Core: buff detection, automation, event handling, saved variables.
+-- UI rendering is handled by FrameUI.lua.
+
+local CHECK_INTERVAL_COMBAT = 0.5   -- kept for reference; currently unused
+local CHECK_INTERVAL_IDLE   = 2.0
+
+-- Localize globals
+local GetTime                = GetTime
+local InCombatLockdown       = InCombatLockdown
+local UnitBuff               = UnitBuff
+local GetSpellInfo           = GetSpellInfo
+local IsInGroup              = IsInGroup
+local IsInRaid               = IsInRaid
+local UnitClass              = UnitClass
+local UnitGroupRolesAssigned = UnitGroupRolesAssigned
+local UnitSetRole            = UnitSetRole
+local CancelUnitBuff         = CancelUnitBuff
+local PlaySound              = PlaySound
+local GetRepairAllCost       = GetRepairAllCost
+local CanMerchantRepair      = CanMerchantRepair
+local RepairAllItems         = RepairAllItems
+local GetMoney               = GetMoney
+local GetShapeshiftForm      = GetShapeshiftForm
+local GetShapeshiftFormInfo  = GetShapeshiftFormInfo
+local math_floor             = math.floor
+local table_wipe             = table.wipe
+local table_insert           = table.insert
+local table_concat           = table.concat
+local C_Timer                = C_Timer
+
+local STR_BATTLE_SHOUT     = "Battle Shout"
+local STR_COMMANDING_SHOUT = "Commanding Shout"
+local STR_MARK_WILD        = "Mark of the Wild"
+local STR_GIFT_WILD        = "Gift of the Wild"
 
 local cfg = TankBuffReminderConfig
-local currentSpellID = nil
-local trackedBuffs = nil
-local soundPlayed = false
-local pulseTimer = 0
-local isZoning = false 
-local lastRoleSet = 0 -- Prevents duplicate role messages
 
-TankBuffReminderDB = TankBuffReminderDB or {}
+-- SavedVariables — initialised early so Options.lua can read them at load time
+TankBuffReminderDB     = TankBuffReminderDB     or {}
+TankBuffReminderCharDB = TankBuffReminderCharDB or {}
+
+-- State
+local trackedBuffs       = nil
+local isZoning           = false
+local lastRoleSet        = 0
+local activeAlerts       = {}
+local removeSoundPlayed  = false
+local spellInfoCache     = {}
+local spellInfoCacheSize = 0
+local SPELL_CACHE_MAX    = 64
+local buffStates         = {}
+local lastBuffStates     = {}
+local lastAuraDurations  = {}
+local repairParts        = {}
+local EMPTY_TABLE        = {}
+local REMOVAL_LOOKUP     = {}
 
 -------------------------------------------------------------------------------
--- Helpers & Visuals
+-- Spell helpers
 -------------------------------------------------------------------------------
-local function ApplyGlowSettings(f)
-    if not f or not f.glow then return end
-    local ratio = TankBuffReminderDB.glowSize or cfg.defaults.glowSize or 1.5
-    local size = f:GetWidth() * ratio
-    f.glow:SetSize(size, size)
-    local c = TankBuffReminderDB.glowColor or cfg.defaults.glowColor
-    f.glow:SetVertexColor(c.r, c.g, c.b, c.a)
+local SHOUT_IDS           = { [2048] = true, [469] = true }
+local DEFENSIVE_STANCE_ID = 71
+
+local function IsInDefensiveStance()
+    local form = GetShapeshiftForm()
+    if form == 0 then return false end
+    local _, _, _, id = GetShapeshiftFormInfo(form)
+    return id == DEFENSIVE_STANCE_ID
 end
 
-local function ApplyScale(f, scale)
-    scale = math.max(SCALE_MIN, math.min(SCALE_MAX, scale or 1))
-    local size = BASE_SIZE * scale
-    f:SetSize(size, size)
-    TankBuffReminderDB.scale = scale
-    ApplyGlowSettings(f)
-end
-
-function TankBuffReminder_UpdateGlow()
-    ApplyGlowSettings(TankBuffReminderFrame)
-end
-
--- Global function to safely set role with throttle to prevent double messages
-function TankBuffReminder_SetRoleLogic()
-    local now = GetTime()
-    if not TankBuffReminderDB.autoSetTankRole or InCombatLockdown() or not IsInGroup() then return end
-    
-    -- Safety Check: Never auto-set roles if in a Raid or if we just did this < 10s ago
-    if IsInRaid() or (now - lastRoleSet < 10) then return end
-
-    local currentRole = UnitGroupRolesAssigned("player")
-
-    -- Only call if the server hasn't updated our status yet
-    -- Removed SetPartyAssignment as it is a forbidden protected function
-    if currentRole ~= "TANK" then
-        lastRoleSet = now 
-        pcall(function()
-            UnitSetRole("player", "TANK")
-        end)
-    end
-end
-
-local function HasBuff(spellID)
-    local targetName = GetSpellInfo(spellID)
-    if spellID == 26990 or spellID == 26991 or targetName == "Mark of the Wild" then
-        for i = 1, 40 do
-            local name = UnitBuff("player", i)
-            if not name then break end
-            if name == "Mark of the Wild" or name == "Gift of the Wild" then return true end
+local function GetSpellName(spellID)
+    if not spellID then return nil end
+    local n = spellInfoCache[spellID]
+    if not n then
+        n = GetSpellInfo(spellID)
+        if n then
+            if spellInfoCacheSize >= SPELL_CACHE_MAX then
+                table_wipe(spellInfoCache)
+                spellInfoCacheSize = 0
+            end
+            spellInfoCache[spellID] = n
+            spellInfoCacheSize = spellInfoCacheSize + 1
         end
-        return false
     end
+    return n
+end
+
+function HasBuff(spellID, entry)
+    if not spellID then return false end
+    if spellID == DEFENSIVE_STANCE_ID then return IsInDefensiveStance() end
+
+    local targetName = GetSpellName(spellID)
+    if not targetName then return false end
+
+    local isShout = SHOUT_IDS[spellID]
+    local isWild  = (spellID == 26990 or spellID == 26991 or targetName == STR_MARK_WILD)
+
     for i = 1, 40 do
         local name = UnitBuff("player", i)
         if not name then break end
-        if name == targetName then return true end
+        if isShout then
+            if name == STR_BATTLE_SHOUT or name == STR_COMMANDING_SHOUT then return true end
+        elseif isWild then
+            if name == STR_MARK_WILD or name == STR_GIFT_WILD then return true end
+        elseif name == targetName then
+            return true
+        end
     end
     return false
 end
 
 -------------------------------------------------------------------------------
--- Automation Features
+-- Public API consumed by FrameUI.lua
 -------------------------------------------------------------------------------
-local function DoAutomation()
-    -- Salvation Removal
-    if TankBuffReminderDB.autoRemoveSalvation then
-        for i = 1, 40 do
-            local _, _, _, _, _, _, _, _, _, _, spellID = UnitBuff("player", i)
-            if not spellID then break end
-            if spellID == 1038 or spellID == 25895 then CancelUnitBuff("player", i) end
-        end
-    end
-    
-    TankBuffReminder_SetRoleLogic()
+function TBR_GetTrackedBuffs()
+    return trackedBuffs or {}
 end
 
 -------------------------------------------------------------------------------
--- Visibility & Logic
+-- Automation
 -------------------------------------------------------------------------------
-function UpdateVisibility()
-    -- Shield: Ignore logic during and immediately after loading screens
-    if isZoning then return end
+local function DoAutomation()
+    if TankBuffReminderCharDB.autoSetTankRole ~= false
+       and not InCombatLockdown()
+       and IsInGroup()
+       and not IsInRaid() then
+        local now = GetTime()
+        if (now - lastRoleSet) >= 4 then
+            if UnitGroupRolesAssigned("player") ~= "TANK" then
+                lastRoleSet = now
+                UnitSetRole("player", "TANK")
+            end
+        end
+    end
+end
 
+-- Compatibility shims for Options.lua
+function TankBuffReminder_SetRoleLogic() end
+function TankBuffReminder_UpdateGlow()
+    RunVisibilityCheck()
+end
+
+-------------------------------------------------------------------------------
+-- Core visibility check
+-------------------------------------------------------------------------------
+local function RunVisibilityCheck()
+    if isZoning or not trackedBuffs then return end
     DoAutomation()
-    
-    local missingID, missingName, texture = nil, nil, nil
-    if trackedBuffs then
-        for _, entry in ipairs(trackedBuffs) do
-            local name, _, tex = GetSpellInfo(entry.spellID)
-            if name and not HasBuff(entry.spellID) then
-                missingID, missingName, texture = entry.spellID, name, tex
+
+    table_wipe(buffStates)
+    local anyAlertActive   = false
+    local anyRemovalActive = false
+    local autoRemoveList   = cfg.autoRemove or EMPTY_TABLE
+    local currentAuraDurations = {}
+
+    -- 1. Standard buff tracking
+    for i = 1, #trackedBuffs do
+        local entry     = trackedBuffs[i]
+        local spellName = GetSpellInfo(entry.spellID)
+
+        for j = 1, 40 do
+            local name, _, _, _, _, expirationTime = UnitBuff("player", j)
+            if not name then break end
+            if name == spellName
+               or (entry.key == "markOfTheWild" and (name == STR_MARK_WILD or name == STR_GIFT_WILD)) then
+                currentAuraDurations[entry.key] = expirationTime or 0
                 break
+            end
+        end
+
+        local showAlert = not HasBuff(entry.spellID, entry)
+        buffStates[entry.key] = showAlert
+        if showAlert then anyAlertActive = true end
+    end
+
+    -- 2. Removal / icon check (single pass)
+    for idx = 1, 40 do
+        local buffName = UnitBuff("player", idx)
+        if not buffName then break end
+
+        local entry = REMOVAL_LOOKUP[buffName]
+        if entry then
+            local autoRemoveEnabled = TankBuffReminderCharDB[entry.dbKey]
+            local showIconEnabled   = TankBuffReminderCharDB[entry.showIconDbKey]
+
+            if autoRemoveEnabled then
+                if not InCombatLockdown() then
+                    CancelUnitBuff("player", idx)
+                    anyRemovalActive = true
+                elseif showIconEnabled then
+                    buffStates[entry.key] = true
+                    anyAlertActive = true
+                end
+            elseif showIconEnabled then
+                buffStates[entry.key] = true
+                anyAlertActive = true
             end
         end
     end
 
-    local f = TankBuffReminderFrame
-    if not missingID then
-        currentSpellID = nil
-        soundPlayed = false
-        f:SetAlpha(0.001) 
-        f.glow:SetAlpha(0)
+    -- 3. Audio alerts
+    local salvActive = buffStates["salvation"]
+    local bopActive  = buffStates["bop"]
+    local triggerRemovalSound = anyRemovalActive or salvActive or bopActive
+
+    if triggerRemovalSound then
+        if not removeSoundPlayed then
+            if TankBuffReminderCharDB.removeSoundEnabled ~= false then
+                local soundID = TankBuffReminderCharDB.removeSoundID or cfg.defaults.removeSoundID or 847
+                PlaySound(soundID, "Master")
+            end
+            removeSoundPlayed = true
+        end
+    else
+        removeSoundPlayed = false
+    end
+
+    if anyAlertActive and not triggerRemovalSound then
+        local playedForThisCheck = false
+        for i = 1, #trackedBuffs do
+            local key = trackedBuffs[i].key
+            if buffStates[key] then
+                if not activeAlerts[key] then
+                    if not playedForThisCheck and TankBuffReminderCharDB.playSound ~= false then
+                        local soundID = TankBuffReminderCharDB.soundID or cfg.defaults.soundID or 8959
+                        PlaySound(soundID, "Master")
+                        playedForThisCheck = true
+                    end
+                    activeAlerts[key] = true
+                end
+            else
+                activeAlerts[key] = false
+            end
+        end
+    elseif not anyAlertActive then
+        table_wipe(activeAlerts)
+    end
+
+    -- 4. UI update — only when state or expiration changed
+    local needsUIUpdate = false
+    for i = 1, #trackedBuffs do
+        local key = trackedBuffs[i].key
+        if buffStates[key] ~= lastBuffStates[key] or currentAuraDurations[key] ~= lastAuraDurations[key] then
+            needsUIUpdate = true
+            break
+        end
+    end
+
+    if needsUIUpdate then
+        for i = 1, #trackedBuffs do
+            local key = trackedBuffs[i].key
+            lastBuffStates[key]    = buffStates[key]
+            lastAuraDurations[key] = currentAuraDurations[key]
+        end
+        if TBR_UI_Update then
+            TBR_UI_Update(buffStates, anyAlertActive)
+        end
+    end
+end
+
+-------------------------------------------------------------------------------
+-- Internal helpers
+-------------------------------------------------------------------------------
+function TBR_ForceCheck()
+    RunVisibilityCheck()
+end
+
+local function SafeRunCheck()
+    if not isZoning then RunVisibilityCheck() end
+end
+
+-------------------------------------------------------------------------------
+-- Buff list rebuild
+-------------------------------------------------------------------------------
+local CLASS_SECTION_NAME = {
+    PALADIN = "Paladin",
+    DRUID   = "Druid",
+    WARRIOR = "Warrior",
+}
+local CLASS_DEFAULT_ORDER = {
+    Paladin = { "righteousFury", "devotionAura" },
+    Druid   = { "thorns", "markOfTheWild", "omenOfClarity" },
+    Warrior = { "battleShout", "commandingShout", "defensiveStance" },
+}
+
+local buffByKey = {}
+for _, b in ipairs(cfg.buffs) do buffByKey[b.key] = b end
+
+local buffOrderKeySet = {}
+
+function TankBuffReminder_RebuildTrackedBuffs()
+    if not trackedBuffs then
+        trackedBuffs = {}
+    else
+        table_wipe(trackedBuffs)
+    end
+
+    local _, class    = UnitClass("player")
+    local sectionName = CLASS_SECTION_NAME[class]
+    if not sectionName then TBR_ForceCheck(); return end
+
+    local defaultOrder = CLASS_DEFAULT_ORDER[sectionName]
+    local order        = defaultOrder
+
+    if TankBuffReminderCharDB.buffOrder and TankBuffReminderCharDB.buffOrder[sectionName] then
+        local saved = TankBuffReminderCharDB.buffOrder[sectionName]
+        table_wipe(buffOrderKeySet)
+        for _, k in ipairs(defaultOrder) do buffOrderKeySet[k] = true end
+        local valid = (#saved == #defaultOrder)
+        if valid then
+            for _, k in ipairs(saved) do
+                if not buffOrderKeySet[k] then valid = false; break end
+            end
+        end
+        if valid then order = saved end
+    end
+
+    for _, key in ipairs(order) do
+        local b = buffByKey[key]
+        if b and TankBuffReminderCharDB[key] ~= false then
+            table_insert(trackedBuffs, b)
+        end
+    end
+
+    table_wipe(REMOVAL_LOOKUP)
+    local autoList = cfg.autoRemove or EMPTY_TABLE
+    for i = 1, #autoList do
+        local entry = autoList[i]
+        for _, name in ipairs(entry.watchNames) do
+            REMOVAL_LOOKUP[name] = entry
+        end
+    end
+
+    if TBR_UI_Rebuild then TBR_UI_Rebuild() end
+    TBR_ForceCheck()
+end
+
+-------------------------------------------------------------------------------
+-- Event frame
+-------------------------------------------------------------------------------
+local eF = CreateFrame("Frame")
+eF:RegisterEvent("PLAYER_LOGIN")
+eF:RegisterEvent("PLAYER_REGEN_ENABLED")
+eF:RegisterEvent("PLAYER_REGEN_DISABLED")
+eF:RegisterEvent("MERCHANT_SHOW")
+eF:RegisterEvent("GROUP_ROSTER_UPDATE")
+eF:RegisterEvent("PLAYER_ENTERING_WORLD")
+eF:RegisterEvent("UNIT_AURA")
+eF:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+eF:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
+
+local lastAuraUpdate = 0
+
+local function OnZoneTimer()
+    isZoning = false
+    -- Wipe last-seen state so the diff check always triggers a full UI update
+    -- after zoning, even if the buff list is identical to pre-zone.
+    table_wipe(lastBuffStates)
+    table_wipe(lastAuraDurations)
+    TBR_ForceCheck()
+end
+local function OnRosterTimer() SafeRunCheck() end
+local function OnSpecTimer()   TankBuffReminder_RebuildTrackedBuffs() end
+
+eF:SetScript("OnEvent", function(self, event, arg1)
+    if event == "UNIT_AURA" then
+        if arg1 == "player" then
+            local now = GetTime()
+            if (now - lastAuraUpdate) > 0.2 then
+                lastAuraUpdate = now
+                RunVisibilityCheck()
+            end
+        end
         return
     end
 
-    -- Trigger alert sound only if not already played
-    if f:GetAlpha() <= 0.05 and not soundPlayed then
-        if TankBuffReminderDB.playSound ~= false then
-            PlaySound(TankBuffReminderDB.soundID or cfg.defaults.soundID or 8959, "Master")
-        end
-        soundPlayed = true
+    if event == "UPDATE_SHAPESHIFT_FORM" then
+        RunVisibilityCheck()
+        return
     end
 
-    currentSpellID = missingID
-    f.icon:SetTexture(texture or "Interface\\Icons\\INV_Misc_QuestionMark")
-
-    if not InCombatLockdown() then
-        f:SetAttribute("type1", "spell")
-        f:SetAttribute("spell1", missingName)
-        -- We only attach the manual role check to the click, keeping it out of the automated loop
-        f:SetAttribute("macrotext1", "/run TankBuffReminder_SetRoleLogic()")
-    else
-        if f:GetAttribute("spell1") ~= missingName then
-            f.needsSpell = missingName
-        end
+    if event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
+        SafeRunCheck()
+        return
     end
-    f:SetAlpha(1)
-end
 
--------------------------------------------------------------------------------
--- Frame Setup
--------------------------------------------------------------------------------
-local frame = CreateFrame("Button", "TankBuffReminderFrame", UIParent, "SecureActionButtonTemplate")
-frame:SetSize(BASE_SIZE, BASE_SIZE)
-frame:SetMovable(true)
-frame:EnableMouse(true)
-frame:SetClampedToScreen(true)
-frame:RegisterForClicks("AnyUp", "AnyDown")
-frame:SetAttribute("type1", "spell")
-frame:SetAttribute("unit", "player")
-
-frame.icon = frame:CreateTexture(nil, "ARTWORK")
-frame.icon:SetAllPoints()
-frame.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-
-frame.glow = frame:CreateTexture(nil, "BACKGROUND")
-frame.glow:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
-frame.glow:SetBlendMode("ADD")
-frame.glow:SetPoint("CENTER")
-
-frame:SetScript("OnUpdate", function(self, elapsed)
-    if self:GetAlpha() < 0.5 then 
-        self.glow:SetAlpha(0)
-        return 
-    end
-    local speed = TankBuffReminderDB.pulseSpeed or cfg.defaults.pulseSpeed or 4
-    pulseTimer = pulseTimer + elapsed
-    local alpha = 0.75 + math.sin(pulseTimer * speed) * 0.25
-    self:SetAlpha(alpha)
-    self.glow:SetAlpha(alpha - 0.2)
-end)
-
-frame:SetScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    if currentSpellID then GameTooltip:SetSpellByID(currentSpellID) 
-    else GameTooltip:SetText("Tank Buff Reminder") end
-    GameTooltip:AddLine(" ")
-    GameTooltip:AddLine("Left-click to cast & set role", 1, 1, 1)
-    GameTooltip:AddLine("Shift + drag to move", 0.8, 0.8, 0.8)
-    GameTooltip:Show()
-end)
-frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
-frame:SetScript("OnMouseDown", function(self, button)
-    if not InCombatLockdown() and button == "LeftButton" and IsShiftKeyDown() then 
-        self:StartMoving() 
-        self.isMoving = true
-    end
-end)
-
-frame:SetScript("OnMouseUp", function(self)
-    if self.isMoving then
-        self:StopMovingOrSizing()
-        self.isMoving = false
-        if not InCombatLockdown() then
-            local p, _, rp, x, y = self:GetPoint()
-            TankBuffReminderDB.f1_pos = {p=p, rp=rp, x=x, y=y}
-        end
-    end
-end)
-
-frame:SetResizable(true)
-local resize = CreateFrame("Frame", nil, frame)
-resize:SetPoint("BOTTOMRIGHT")
-resize:SetSize(16, 16)
-resize:EnableMouse(true)
-local resizeTex = resize:CreateTexture(nil, "OVERLAY")
-resizeTex:SetAllPoints()
-resizeTex:SetTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
-
-resize:SetScript("OnMouseDown", function(self) 
-    if not InCombatLockdown() then 
-        local f = self:GetParent()
-        f:StartSizing("BOTTOMRIGHT") 
-        f.isSizing = true
-    end 
-end)
-
-resize:SetScript("OnMouseUp", function(self)
-    local f = self:GetParent()
-    if f.isSizing then
-        f:StopMovingOrSizing()
-        f.isSizing = false
-        if not InCombatLockdown() then
-            ApplyScale(f, f:GetWidth() / BASE_SIZE)
-        end
-    end
-end)
-
--------------------------------------------------------------------------------
--- Events & Rebuild
--------------------------------------------------------------------------------
-function TankBuffReminder_RebuildTrackedBuffs()
-    trackedBuffs = {}
-    local _, class = UnitClass("player")
-    for _, b in ipairs(cfg.buffs) do
-        local isClass = (class == "PALADIN" and (b.key == "righteousFury" or b.key == "devotionAura")) or
-                        (class == "DRUID" and (b.key == "thorns" or b.key == "markOfTheWild" or b.key == "omenOfClarity")) or
-                        (class == "WARRIOR" and (b.key == "battleShout" or b.key == "commandingShout" or b.key == "defensiveStance"))
-        if isClass and TankBuffReminderDB[b.key] ~= false then table.insert(trackedBuffs, b) end
-    end
-    UpdateVisibility()
-end
-
-local eF = CreateFrame("Frame")
-eF:RegisterEvent("PLAYER_LOGIN")
-eF:RegisterEvent("UNIT_AURA")
-eF:RegisterEvent("PLAYER_REGEN_ENABLED")
-eF:RegisterEvent("MERCHANT_SHOW")
-eF:RegisterEvent("GROUP_ROSTER_UPDATE")
-eF:RegisterEvent("PLAYER_ENTERING_WORLD") 
-
-local elapsedTotal = 0
-eF:SetScript("OnUpdate", function(self, elapsed)
-    elapsedTotal = elapsedTotal + elapsed
-    if elapsedTotal >= CHECK_INTERVAL then
-        elapsedTotal = 0
-        UpdateVisibility()
-    end
-end)
-
-eF:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_ENTERING_WORLD" then
         isZoning = true
-        C_Timer.After(2, function() 
-            isZoning = false 
-            UpdateVisibility()
-        end)
-    elseif event == "PLAYER_LOGIN" then
-        for k, v in pairs(cfg.defaults) do if TankBuffReminderDB[k] == nil then TankBuffReminderDB[k] = v end end
-        if TankBuffReminderDB.f1_pos then 
-            frame:SetPoint(TankBuffReminderDB.f1_pos.p, UIParent, TankBuffReminderDB.f1_pos.rp, TankBuffReminderDB.f1_pos.x, TankBuffReminderDB.f1_pos.y) 
-        else frame:SetPoint("CENTER", UIParent, "CENTER", 0, -150) end
-        ApplyScale(frame, TankBuffReminderDB.scale or 1)
+        C_Timer.After(2, OnZoneTimer)
+        return
+    end
+
+    if event == "PLAYER_LOGIN" then
+        TankBuffReminderDB     = TankBuffReminderDB     or {}
+        TankBuffReminderCharDB = TankBuffReminderCharDB or {}
+
+        local globalDBKeys = {
+            consBarEnabled = true, consFrameAlpha = true, consScale = true,
+            consAlpha = true, consPadding = true, consMouseover = true,
+            consPulseSpeed = true, consTimerFontSize = true, consTimerOffsetY = true,
+            consTimerAlpha = true, consSweepAlpha = true, consGlowAlpha = true,
+            consGlowColor = true, consTextColor = true,
+        }
+
+        if cfg and cfg.defaults then
+            for k, v in pairs(cfg.defaults) do
+                if globalDBKeys[k] then
+                    if TankBuffReminderDB[k] == nil then TankBuffReminderDB[k] = v end
+                else
+                    if TankBuffReminderCharDB[k] == nil then TankBuffReminderCharDB[k] = v end
+                end
+            end
+        end
+
+        if cfg and cfg.consumables then
+            for _, item in ipairs(cfg.consumables) do
+                local key = "cons_" .. item.key
+                if TankBuffReminderCharDB[key] == nil then
+                    TankBuffReminderCharDB[key] = item.defaultOn or false
+                end
+            end
+        end
+
         TankBuffReminder_RebuildTrackedBuffs()
-    elseif event == "MERCHANT_SHOW" then
-        if TankBuffReminderDB.autoRepair and CanMerchantRepair() then
+
+        if TankBuffReminderOptions and TankBuffReminderOptions.refresh then
+            TankBuffReminderOptions.refresh()
+        end
+        return
+    end
+
+    if event == "MERCHANT_SHOW" then
+        if TankBuffReminderCharDB.autoRepair ~= false and CanMerchantRepair() then
             local cost = GetRepairAllCost()
-            if cost > 0 and GetMoney() >= cost then RepairAllItems() end
+            if cost > 0 and GetMoney() >= cost then
+                RepairAllItems()
+                local gold   = math_floor(cost / 10000)
+                local silver = math_floor((cost % 10000) / 100)
+                local copper = cost % 100
+                print(string.format("|cff00ccff[TBR]|r Auto-repair: %s%s%s",
+                    (gold   > 0 and gold   .. "|cffFFD700g |r" or ""),
+                    (silver > 0 and silver .. "|cffC0C0C0s |r" or ""),
+                    (copper > 0 and copper .. "|cffB87333c|r"  or "")))
+            end
         end
-    elseif event == "GROUP_ROSTER_UPDATE" then
-        -- We do not call UpdateVisibility immediately here to let the game process role changes
-        C_Timer.After(1, UpdateVisibility)
-    elseif event == "PLAYER_REGEN_ENABLED" then
-        if frame.needsSpell then
-            frame:SetAttribute("spell1", frame.needsSpell)
-            frame.needsSpell = nil
-        end
-        UpdateVisibility()
-    else
-        UpdateVisibility()
+        return
+    end
+
+    if event == "GROUP_ROSTER_UPDATE" then
+        C_Timer.After(1, OnRosterTimer)
+        return
+    end
+
+    if event == "PLAYER_SPECIALIZATION_CHANGED" then
+        C_Timer.After(0.5, OnSpecTimer)
+        return
     end
 end)
-
-frame:SetAlpha(0.001)
