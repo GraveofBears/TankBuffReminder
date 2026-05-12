@@ -30,9 +30,16 @@ local pulseTimer = 0
 local pulseElapsed = 0
 local _DEFAULT_R, _DEFAULT_G, _DEFAULT_B = 0, 0, 0
 local lastBuffScan = 0
-local WELL_FED_NAME = GetSpellInfo(35272)
+local WELL_FED_NAME = "Well Fed"
 local _currentBuffs = {}
 local _lastCounts = {}
+
+-- Pre-allocated pool for buff scan entries — reused every second, zero allocations
+local _buffEntryPool = {}
+do
+    for i = 1, 40 do _buffEntryPool[i] = { exp = 0, dur = 0 } end
+end
+local _buffEntryCount = 0  -- tracks how many pool entries are in use this scan
 
 -------------------------------------------------------------------------------
 -- Hotkey System
@@ -378,7 +385,10 @@ anchor:SetMovable(true)
 anchor:SetClampedToScreen(true)
 anchor:SetPoint("CENTER", UIParent, "CENTER", 0, -220)
 anchor:SetFrameStrata("MEDIUM")
+
+-- IMPORTANT: We enable mouse only for dragging, but let movement pass through
 anchor:EnableMouse(true)
+anchor:SetMouseMotionEnabled(true)
 
 anchor.bg = anchor:CreateTexture(nil, "BACKGROUND")
 anchor.bg:SetAllPoints()
@@ -391,6 +401,7 @@ anchor:SetBackdrop({
 })
 anchor:SetBackdropBorderColor(1, 1, 1, 0.4)
 
+-- Movement (Shift+Drag)
 anchor:SetScript("OnMouseDown", function(self, button)
     if not InCombatLockdown() and button == "LeftButton" and IsShiftKeyDown() then
         self:StartMoving()
@@ -409,6 +420,10 @@ anchor:SetScript("OnMouseUp", function(self)
         end
     end
 end)
+
+-- STRONGER FIX for movement blocking
+anchor:SetPropagateMouseMotion(true)
+anchor:SetPropagateMouseClicks(true)
 
 anchor:Hide()
 
@@ -513,7 +528,7 @@ end
 -------------------------------------------------------------------------------
 -- Slot Factory
 -------------------------------------------------------------------------------
-local function MakeSlot(index, entry, xOffset)
+local function MakeSlot(index, entry, xOffset, yOffset)
     local resolvedID = BestItemID(entry.itemIDs)
     if not resolvedID then return nil end
 
@@ -562,6 +577,9 @@ local function MakeSlot(index, entry, xOffset)
             if parent:GetScript("OnMouseUp") then parent:GetScript("OnMouseUp")(parent, button) end
         end)
 
+        btn:SetPropagateMouseMotion(true)
+        btn:SetPropagateMouseClicks(true)
+
         btn.icon = btn:CreateTexture(nil, "ARTWORK")
         btn.icon:SetAllPoints()
         btn.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
@@ -569,6 +587,7 @@ local function MakeSlot(index, entry, xOffset)
         btn.cd = CreateFrame("Cooldown", nil, btn, "CooldownFrameTemplate")
         btn.cd:SetAllPoints()
         btn.cd:SetDrawEdge(false)
+        btn.cd:SetDrawSwipe(true)
 
         for i = 1, btn.cd:GetNumRegions() do
             local region = select(i, btn.cd:GetRegions())
@@ -633,28 +652,39 @@ local function MakeSlot(index, entry, xOffset)
 
             GameTooltip:Show()
 
-            -- Enable Backspace to clear the hotkey while hovering
-            self:EnableKeyboard(true)
-            self:SetPropagateKeyboardInput(true)
-            self:SetScript("OnKeyDown", function(s, key)
-                if key == "BACKSPACE" then
-                    local entry = s.entry
-                    if entry then
-                        ClearHotkey(entry.key)
-                        -- Refresh tooltip
-                        GameTooltip:ClearLines()
-                        GameTooltip:SetItemByID(s.currentItemID)
-                        GameTooltip:AddLine(" ")
-                        GameTooltip:AddLine("|cff888888Ctrl+Click|r to set a hotkey", 0.7, 0.7, 0.7, true)
-                        GameTooltip:Show()
+            -- Use a dedicated listener frame instead of enabling keyboard on the
+            -- button itself. EnableKeyboard(true) on a button steals focus and
+            -- blocks movement keys even with SetPropagateKeyboardInput(true).
+            if not self._keyListener then
+                local kf = CreateFrame("Frame", nil, self)
+                kf:SetAllPoints()
+                kf:EnableKeyboard(true)
+                -- Propagate everything EXCEPT Backspace so movement is never blocked.
+                kf:SetPropagateKeyboardInput(true)
+                kf:SetScript("OnKeyDown", function(_, key)
+                    if key == "BACKSPACE" then
+                        -- Swallow only this key; stop propagation for this one press.
+                        kf:SetPropagateKeyboardInput(false)
+                        local entry = self.entry
+                        if entry then
+                            ClearHotkey(entry.key)
+                            GameTooltip:ClearLines()
+                            GameTooltip:SetItemByID(self.currentItemID)
+                            GameTooltip:AddLine(" ")
+                            GameTooltip:AddLine("|cff888888Ctrl+Click|r to set a hotkey", 0.7, 0.7, 0.7, true)
+                            GameTooltip:Show()
+                        end
+                    else
+                        kf:SetPropagateKeyboardInput(true)
                     end
-                end
-            end)
+                end)
+                self._keyListener = kf
+            end
+            self._keyListener:Show()
         end)
         btn:SetScript("OnLeave", function(self)
             GameTooltip:Hide()
-            self:EnableKeyboard(false)
-            self:SetScript("OnKeyDown", nil)
+            if self._keyListener then self._keyListener:Hide() end
         end)
     else
         if not btn.glow then
@@ -663,7 +693,12 @@ local function MakeSlot(index, entry, xOffset)
     end
 
     btn:SetSize(BASE_SIZE, BASE_SIZE)
-    btn:SetPoint("LEFT", anchor, "LEFT", xOffset, 0)
+    btn:ClearAllPoints()
+    if (TankBuffReminderDB and TankBuffReminderDB.consOrientation == "vertical") then
+        btn:SetPoint("TOP", anchor, "TOP", 0, yOffset or 0)
+    else
+        btn:SetPoint("LEFT", anchor, "LEFT", xOffset, 0)
+    end
 
     slot.btn   = btn
     slot.entry = entry
@@ -700,7 +735,8 @@ end
 
 local _lastInCombat = false  
 
-local function UpdateSlotVisuals(pStart, pDur)
+local function UpdateSlotVisuals()
+    local pStart, pDur = SafeGetCD(POTION_SHARED_CD_ITEM)
     local potionCDActive = pDur > 1.5
     local inCombat = InCombatLockdown()
     local combatChanged = (inCombat ~= _lastInCombat)
@@ -718,67 +754,26 @@ local function UpdateSlotVisuals(pStart, pDur)
             ApplyButtonAttributes(slot, entry)
         end
 
-        -- Cooldown / buff-duration timer handling.
-        -- Priority: item CD > potion shared CD > active buff duration.
-        -- The buff-duration case shows the sweep/timer on the icon while the
-        -- buff is up (greyed out, counting down), matching the main buff bar behaviour.
+        -- Cooldown handling
         local start, duration = SafeGetCD(resID)
         if entry.isPotionType and potionCDActive and pDur > duration then
             start, duration = pStart, pDur
         end
 
-        if duration <= 1.5 then
-            -- No item CD — check if a buff from this consumable is currently active
-            local now = GetTime()
-            local buffExp = nil
-
-            if entry.buffSpellID then
-                local sid = entry.buffSpellID
-                -- buffSpellID can be a table (e.g. Savory Deviate Delight)
-                if type(sid) == "table" then
-                    for _, id in ipairs(sid) do
-                        if _currentBuffs[id] then buffExp = _currentBuffs[id]; break end
-                    end
-                else
-                    buffExp = _currentBuffs[sid]
-                end
-            elseif entry.category == "Food" then
-                buffExp = _currentBuffs["FOOD"]
-            end
-
-            if buffExp and buffExp > 0 then
-                local remaining = buffExp - now
-                if remaining > 1.5 then
-                    -- Only call SetCooldown when the stored expiration differs meaningfully.
-                    -- The CD frame animates its own countdown; we don't need to reset it
-                    -- every pulse, only when the buff is first applied or refreshed.
-                    if math.abs((slot._lastBuffExp or 0) - buffExp) > 1.0 then
-                        slot.cd:SetCooldown(now, remaining)
-                        slot._lastBuffExp  = buffExp
-                        slot._lastStart    = now
-                        slot._lastDuration = remaining
-                    end
-                    slot.cd:Show()
-                else
-                    slot._lastBuffExp  = nil
-                    slot._lastDuration = 0
-                    slot._lastStart    = 0
-                    slot.cd:Hide()
-                end
-            else
-                slot._lastBuffExp  = nil
-                slot._lastDuration = 0
-                slot._lastStart    = 0
-                slot.cd:Hide()
-            end
-        else
-            -- Item is on cooldown — show that
+        if duration > 1.5 then
             if slot._lastStart ~= start or slot._lastDuration ~= duration then
                 slot.cd:SetCooldown(start, duration)
                 slot._lastStart    = start
                 slot._lastDuration = duration
             end
             slot.cd:Show()
+        elseif not slot._showingBuff then
+            -- Only hide if neither a buff sweep nor weapon enchant sweep is active
+            if slot._lastDuration ~= 0 then
+                slot._lastDuration = 0
+                slot._lastStart    = 0
+            end
+            slot.cd:Hide()
         end
 
         -- Update count text and desaturation only when count changes
@@ -811,6 +806,7 @@ anchor:SetScript("OnUpdate", function(self, elapsed)
     if pulseElapsed < PULSE_INTERVAL then return end
 
     local db = TankBuffReminderDB
+    local cdb = TankBuffReminderCharDB -- character-specific DB
     if not db then return end
 
     local speed = db.consPulseSpeed or 3
@@ -820,7 +816,8 @@ anchor:SetScript("OnUpdate", function(self, elapsed)
     pulseElapsed = 0
 
     local isOver = anchor:IsMouseOver()
-    local visibilityAlpha = (db.consMouseover and not isOver) and 0 or 1.0
+    local hidden = db.consMouseover and not isOver
+    local visibilityAlpha = hidden and 0 or 1.0
     local frameAlphaSetting = db.consFrameAlpha or 0.3
 
     if anchor.bg then anchor.bg:SetAlpha(visibilityAlpha * frameAlphaSetting) end
@@ -828,84 +825,161 @@ anchor:SetScript("OnUpdate", function(self, elapsed)
         anchor:SetBackdropBorderColor(1, 1, 1, visibilityAlpha * frameAlphaSetting)
     end
 
-    -- Update visuals (icons/CDs)
-    local pStart, pDur = SafeGetCD(POTION_SHARED_CD_ITEM)
-    UpdateSlotVisuals(pStart, pDur)
-
-    -- Buff scan: once per second, wipe and rebuild from UnitBuff
-    local now = GetTime()
-    if (now - lastBuffScan) > 1.0 then
-        lastBuffScan = now
-        table.wipe(_currentBuffs)
-        for i = 1, 40 do
-            local name, _, _, _, dur, exp, _, _, _, sid = UnitBuff("player", i)
-            if not name then break end
-            if sid then _currentBuffs[sid] = exp or 0 end
-            if name == WELL_FED_NAME then _currentBuffs["FOOD"] = exp or 0 end
+    if hidden ~= anchor._lastHidden then
+        anchor._lastHidden = hidden
+        for _, slot in ipairs(slots) do
+            local btn = slot.btn
+            if btn.hotkeyText then
+                if hidden then
+                    btn.hotkeyText:Hide()
+                else
+                    RefreshHotkeyLabel(btn, slot.entry and slot.entry.key)
+                end
+            end
         end
     end
 
-    local maxGlowAlpha  = db.consGlowAlpha or 1.0
-    local alphaWave     = (0.7 + math_sin(pulseTimer) * 0.3) * maxGlowAlpha
+    -- Update visuals (icons/CDs)
+    UpdateSlotVisuals()
+
+    -- Glow / Needs Attention Logic
+    local now = GetTime()
+    local doFullScan = (now - lastBuffScan) > 1.0
+    
+    -- STEP 1: Buff scan — stored by both spell ID and name so lookups work
+    -- even if a buffSpellID in Config.lua turns out to be wrong.
+    if doFullScan then
+        lastBuffScan = now
+        table.wipe(_currentBuffs)
+        _buffEntryCount = 0
+        for i = 1, 40 do
+            local name, _, _, _, dur, exp, _, _, _, sid = UnitBuff("player", i)
+            if not name then break end
+            -- Reuse a pool entry instead of allocating a new table
+            _buffEntryCount = _buffEntryCount + 1
+            local entry = _buffEntryPool[_buffEntryCount]
+            entry.exp = exp or 0
+            entry.dur = dur or 0
+            if sid then _currentBuffs[sid] = entry end
+            _currentBuffs[name] = entry
+            if name == WELL_FED_NAME then
+                _currentBuffs["FOOD"] = entry
+            end
+        end
+    end
+
+    local maxGlowAlpha = db.consGlowAlpha or 1.0
+    local alphaWave = (0.7 + math_sin(pulseTimer) * 0.3) * maxGlowAlpha
     local userIconAlpha = db.consAlpha or 1.0
     local gc = db.consGlowColor or { r = _DEFAULT_R, g = _DEFAULT_G, b = _DEFAULT_B }
 
     for _, slot in ipairs(slots) do
         local entry = slot.entry
-        local btn   = slot.btn
-
+        local btn = slot.btn
+        
         local totalCount = itemCountCache[entry.key] or 0
-        local hasItem    = totalCount > 0
+        local hasItem = totalCount > 0
+        
+        -- STEP 2: Find active buff for this slot.
+        -- buffSpellID can be a single number or a table of numbers.
+        -- Falls back to looking up the item's own name in the buff list,
+        -- which covers cases where the spell ID in Config is wrong.
+        local activeBuff = nil
+        if entry.buffSpellID then
+            if type(entry.buffSpellID) == "table" then
+                for _, sid in ipairs(entry.buffSpellID) do
+                    if _currentBuffs[sid] then activeBuff = _currentBuffs[sid]; break end
+                end
+            else
+                activeBuff = _currentBuffs[entry.buffSpellID]
+            end
+        end
+        -- Name-based fallback: look up the buff by the item's label
+        if not activeBuff and entry.buffSpellID then
+            local spellName = GetSpellInfo(type(entry.buffSpellID) == "table" and entry.buffSpellID[1] or entry.buffSpellID)
+            if spellName then activeBuff = _currentBuffs[spellName] end
+        end
+        if not activeBuff and entry.category == "Food" then
+            activeBuff = _currentBuffs["FOOD"]
+        end
 
-        -- Distinguish item-on-CD from buff-timer-showing so the two states get
-        -- different visual treatment below.
-        local _, itemDur  = SafeGetCD(BestItemID(entry.itemIDs))
-        local isOnItemCD  = itemDur > 1.5 or (entry.isPotionType and pDur > 1.5)
-        local isBuffTimer = slot.cd:IsShown() and not isOnItemCD
-        local isOffCD     = not slot.cd:IsShown()
+        if activeBuff and activeBuff.exp > 0 then
+            local buffStart = activeBuff.exp - activeBuff.dur
+            if slot._buffStart ~= buffStart or slot._buffDur ~= activeBuff.dur then
+                slot.cd:SetCooldown(buffStart, activeBuff.dur)
+                slot.cd:SetSwipeColor(0, 0, 0, db.consSweepAlpha or 0.7)
+                slot.cd:Show()
+                slot._buffStart = buffStart
+                slot._buffDur   = activeBuff.dur
+            end
+            slot._showingBuff = true
+        elseif entry.category == "Weapon" then
+            -- Weapon buffs aren't player auras — use GetWeaponEnchantInfo instead
+            local hasMH, mhExpMs = GetWeaponEnchantInfo()
+            if hasMH and mhExpMs and mhExpMs > 0 then
+                local mhDur = mhExpMs / 1000
+                local mhStart = now + mhDur - mhDur  -- SetCooldown needs absolute start
+                -- GetWeaponEnchantInfo gives remaining time, not start/end
+                -- so derive: start = now, duration = remaining
+                local buffStart = now
+                if slot._buffStart ~= buffStart or math.abs((slot._buffDur or 0) - mhDur) > 1 then
+                    slot.cd:SetCooldown(buffStart, mhDur)
+                    slot.cd:SetSwipeColor(0, 0, 0, db.consSweepAlpha or 0.7)
+                    slot.cd:Show()
+                    slot._buffStart = buffStart
+                    slot._buffDur   = mhDur
+                end
+                slot._showingBuff = true
+            else
+                slot._showingBuff = false
+                slot._buffStart   = nil
+                slot._buffDur     = nil
+            end
+        else
+            slot._showingBuff = false
+            slot._buffStart   = nil
+            slot._buffDur     = nil
+        end
 
+        local isOffCD = not slot.cd:IsShown()
         local needsAttention = false
 
-        if hasItem and (isOffCD or isBuffTimer) then
+        if isOffCD then
             if entry.category == "Weapon" then
-                local hasMH, mhExp = GetWeaponEnchantInfo()
-                needsAttention = not hasMH or (mhExp / 1000) < 120
-            elseif entry.category == "Food" or entry.buffSpellID then
-                local found = false
-                local sid = entry.buffSpellID
-                if sid then
-                    if type(sid) == "table" then
-                        for _, id in ipairs(sid) do
-                            if _currentBuffs[id] and (_currentBuffs[id] == 0 or (_currentBuffs[id] - now) > 120) then
-                                found = true; break
-                            end
-                        end
-                    elseif _currentBuffs[sid] then
-                        local exp = _currentBuffs[sid]
-                        if exp == 0 or (exp - now) > 120 then found = true end
-                    end
-                elseif entry.category == "Food" and _currentBuffs["FOOD"] then
-                    local exp = _currentBuffs["FOOD"]
-                    if exp == 0 or (exp - now) > 120 then found = true end
+                -- Only nag if we have the item to actually apply the buff
+                if hasItem then
+                    local hasMH, mhExpMs = GetWeaponEnchantInfo()
+                    needsAttention = not hasMH or (mhExpMs and (mhExpMs / 1000) < 120)
                 end
-                needsAttention = not found
-            else
+            elseif not slot._showingBuff and hasItem then
+                -- Buff missing and we have the item — nag
                 needsAttention = true
             end
         end
 
-        if isOnItemCD then
-            -- Item cooldown: heavily dim and desaturate
-            btn.icon:SetDesaturated(true)
-            btn.icon:SetAlpha(0.55 * visibilityAlpha)
-            if btn.glow then btn.glow:Hide() end
-        elseif not hasItem then
-            -- Out of stock: desaturate, normal alpha
+		-- === MAIN VISUAL LOGIC ===
+        if not hasItem then
+            -- Priority 1: Out of Items - ALWAYS Grey/Desaturated
             btn.icon:SetDesaturated(true)
             btn.icon:SetAlpha(userIconAlpha * visibilityAlpha)
             if btn.glow then btn.glow:Hide() end
+            
+        elseif not isOffCD then
+            -- Priority 2: On Cooldown (Real Item CD, not buff duration)
+            -- We only desaturate here if it's a real cooldown (like a potion)
+            if activeBuff then
+                -- It's showing a buff duration, keep it colorful
+                btn.icon:SetDesaturated(false)
+                btn.icon:SetAlpha(userIconAlpha * visibilityAlpha)
+            else
+                -- It's a real item cooldown, make it grey
+                btn.icon:SetDesaturated(true)
+                btn.icon:SetAlpha(0.55 * visibilityAlpha)
+            end
+            if btn.glow then btn.glow:Hide() end
+
         elseif needsAttention then
-            -- Ready and unbuffed: bright with pulsing glow
+            -- Priority 3: Ready and needs attention (Missing/Expiring)
             btn.icon:SetDesaturated(false)
             btn.icon:SetAlpha(1.0 * visibilityAlpha)
             if btn.glow and maxGlowAlpha > 0 then
@@ -914,7 +988,7 @@ anchor:SetScript("OnUpdate", function(self, elapsed)
                 btn.glow:Show()
             end
         else
-            -- Buffed (timer showing) or otherwise satisfied: normal dim, no glow
+            -- Priority 4: Buffed and has items
             btn.icon:SetDesaturated(false)
             btn.icon:SetAlpha(userIconAlpha * visibilityAlpha)
             if btn.glow then btn.glow:Hide() end
@@ -952,6 +1026,10 @@ function TBR_ConsBar_Rebuild()
         table.insert(slotPool, slot)
     end
     table.wipe(slots)
+    -- Clear count cache and buff scan so stale frame references don't accumulate
+    table.wipe(_lastCounts)
+    table.wipe(_currentBuffs)
+    _buffEntryCount = 0
 
     if not db or not cfg.consumables or (globalDB and globalDB.consBarEnabled == false) then
         anchor:Hide()
@@ -973,15 +1051,27 @@ function TBR_ConsBar_Rebuild()
     end
 
     local spacing = globalDB.consPadding or 4
-    local totalW = (#enabled * BASE_SIZE) + (math_max(0, #enabled - 1) * spacing) + (PADDING * 2)
-    anchor:SetSize(totalW, BASE_SIZE + PADDING * 2)
+    local isVertical = (globalDB.consOrientation == "vertical")
+
+    if isVertical then
+        local totalH = (#enabled * BASE_SIZE) + (math_max(0, #enabled - 1) * spacing) + (PADDING * 2)
+        anchor:SetSize(BASE_SIZE + PADDING * 2, totalH)
+    else
+        local totalW = (#enabled * BASE_SIZE) + (math_max(0, #enabled - 1) * spacing) + (PADDING * 2)
+        anchor:SetSize(totalW, BASE_SIZE + PADDING * 2)
+    end
 
     local xOff = PADDING
+    local yOff = -(PADDING)
     for i, entry in ipairs(enabled) do
-        local slot = MakeSlot(i, entry, xOff)
+        local slot = MakeSlot(i, entry, xOff, yOff)
         if slot then
             table.insert(slots, slot)
-            xOff = xOff + BASE_SIZE + spacing
+            if isVertical then
+                yOff = yOff - BASE_SIZE - spacing
+            else
+                xOff = xOff + BASE_SIZE + spacing
+            end
         end
     end
 

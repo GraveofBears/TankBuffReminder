@@ -1,12 +1,22 @@
 ## Interface: 11506, 20505
 ## Title: Tank Buff Reminder
-## Notes: Shows a draggable button when important tank buffs are missing. Click to cast the missing buff. 
+## Notes: Shows a draggable button when important tank buffs are missing. Click to cast the missing buff.
 ## Author: Gravebear
-## Version: 1.3.0
+## Version: 1.3.6
 ## IconTexture: Interface\Icons\INV_Shield_06
 ## SavedVariables: TankBuffReminderDB
 ## SavedVariablesPerCharacter: TankBuffReminderCharDB
 ## LoadOnDemand: 0
+
+Locales/Loader.lua
+Locales/enUS.lua
+Locales/deDE.lua
+Locales/esES.lua
+Locales/frFR.lua
+Locales/ruRU.lua
+Locales/zhCN.lua
+Locales/zhTW.lua
+Locales/koKR.lua
 
 Config.lua
 TankBuffReminder.lua

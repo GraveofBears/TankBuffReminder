@@ -2,8 +2,10 @@
 -- Core: buff detection, automation, event handling, saved variables.
 -- UI rendering is handled by FrameUI.lua.
 
-local CHECK_INTERVAL_COMBAT = 0.5   -- kept for reference; currently unused
-local CHECK_INTERVAL_IDLE   = 2.0
+-- TBR_L is already initialized by Locales/Loader.lua (loaded before this file).
+local L = TBR_L
+
+local cfg = TankBuffReminderConfig
 
 -- Localize globals
 local GetTime                = GetTime
@@ -26,15 +28,11 @@ local GetShapeshiftFormInfo  = GetShapeshiftFormInfo
 local math_floor             = math.floor
 local table_wipe             = table.wipe
 local table_insert           = table.insert
-local table_concat           = table.concat
-local C_Timer                = C_Timer
 
 local STR_BATTLE_SHOUT     = "Battle Shout"
 local STR_COMMANDING_SHOUT = "Commanding Shout"
 local STR_MARK_WILD        = "Mark of the Wild"
 local STR_GIFT_WILD        = "Gift of the Wild"
-
-local cfg = TankBuffReminderConfig
 
 -- SavedVariables — initialised early so Options.lua can read them at load time
 TankBuffReminderDB     = TankBuffReminderDB     or {}
@@ -52,7 +50,7 @@ local SPELL_CACHE_MAX    = 64
 local buffStates         = {}
 local lastBuffStates     = {}
 local lastAuraDurations  = {}
-local repairParts        = {}
+local currentAuraDurations = {}  -- reused every check, never reallocated
 local EMPTY_TABLE        = {}
 local REMOVAL_LOOKUP     = {}
 
@@ -135,7 +133,6 @@ local function DoAutomation()
     end
 end
 
--- Compatibility shims for Options.lua
 function TankBuffReminder_SetRoleLogic() end
 function TankBuffReminder_UpdateGlow()
     RunVisibilityCheck()
@@ -149,12 +146,11 @@ local function RunVisibilityCheck()
     DoAutomation()
 
     table_wipe(buffStates)
+    table_wipe(currentAuraDurations)
     local anyAlertActive   = false
     local anyRemovalActive = false
     local autoRemoveList   = cfg.autoRemove or EMPTY_TABLE
-    local currentAuraDurations = {}
 
-    -- 1. Standard buff tracking
     for i = 1, #trackedBuffs do
         local entry     = trackedBuffs[i]
         local spellName = GetSpellInfo(entry.spellID)
@@ -174,7 +170,6 @@ local function RunVisibilityCheck()
         if showAlert then anyAlertActive = true end
     end
 
-    -- 2. Removal / icon check (single pass)
     for idx = 1, 40 do
         local buffName = UnitBuff("player", idx)
         if not buffName then break end
@@ -199,7 +194,6 @@ local function RunVisibilityCheck()
         end
     end
 
-    -- 3. Audio alerts
     local salvActive = buffStates["salvation"]
     local bopActive  = buffStates["bop"]
     local triggerRemovalSound = anyRemovalActive or salvActive or bopActive
@@ -237,7 +231,6 @@ local function RunVisibilityCheck()
         table_wipe(activeAlerts)
     end
 
-    -- 4. UI update — only when state or expiration changed
     local needsUIUpdate = false
     for i = 1, #trackedBuffs do
         local key = trackedBuffs[i].key
@@ -259,9 +252,6 @@ local function RunVisibilityCheck()
     end
 end
 
--------------------------------------------------------------------------------
--- Internal helpers
--------------------------------------------------------------------------------
 function TBR_ForceCheck()
     RunVisibilityCheck()
 end
@@ -354,8 +344,6 @@ local lastAuraUpdate = 0
 
 local function OnZoneTimer()
     isZoning = false
-    -- Wipe last-seen state so the diff check always triggers a full UI update
-    -- after zoning, even if the buff list is identical to pre-zone.
     table_wipe(lastBuffStates)
     table_wipe(lastAuraDurations)
     TBR_ForceCheck()
@@ -438,7 +426,7 @@ eF:SetScript("OnEvent", function(self, event, arg1)
                 local gold   = math_floor(cost / 10000)
                 local silver = math_floor((cost % 10000) / 100)
                 local copper = cost % 100
-                print(string.format("|cff00ccff[TBR]|r Auto-repair: %s%s%s",
+                print(string.format("|cff00ccff[TBR]|r " .. L["Auto-repair: %s%s%s"],
                     (gold   > 0 and gold   .. "|cffFFD700g |r" or ""),
                     (silver > 0 and silver .. "|cffC0C0C0s |r" or ""),
                     (copper > 0 and copper .. "|cffB87333c|r"  or "")))

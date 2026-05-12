@@ -1,11 +1,12 @@
--- DefenseCap.lua 
+-- DefenseCap.lua
+local L = TBR_L
 
 -------------------------------------------------------------------------------
 -- Chart Data (lazy-built)
 -------------------------------------------------------------------------------
 local CHARTS = {
     DRUID = {
-        label         = "Druid |cff999999(Survival of the Fittest)|r",
+        label         = L["Druid |cff999999(Survival of the Fittest)|r"],
         capSkill      = 415,
         targetCritRed = 2.6,
         classColor    = { r = 1.0, g = 0.49, b = 0.04 },
@@ -13,7 +14,7 @@ local CHARTS = {
         rowsBuilt     = false,
     },
     WARRIOR = {
-        label         = "Warrior",
+        label         = L["Warrior"],
         capSkill      = 490,
         targetCritRed = 5.6,
         classColor    = { r = 0.78, g = 0.61, b = 0.43 },
@@ -21,7 +22,7 @@ local CHARTS = {
         rowsBuilt     = false,
     },
     PALADIN = {
-        label         = "Paladin",
+        label         = L["Paladin"],
         capSkill      = 490,
         targetCritRed = 5.6,
         classColor    = { r = 0.96, g = 0.55, b = 0.73 },
@@ -144,9 +145,9 @@ local function MakeColHeader(text, x)
     table.insert(TBR_CapHeaders, fs) 
 end
 
-MakeColHeader("Defense Skill", COL_SKILL)
-MakeColHeader("Rating Needed", COL_RATING)
-MakeColHeader("Resil Needed",  COL_RESIL)
+MakeColHeader(L["Defense Skill"], COL_SKILL)
+MakeColHeader(L["Rating Needed"], COL_RATING)
+MakeColHeader(L["Resil Needed"],  COL_RESIL)
 
 -- Note: You had a second colDivider definition here in your snippet. 
 -- I have removed the duplicate to keep the code clean.
@@ -331,7 +332,7 @@ function TBR_DefenseCap_Toggle()
     EnsureChartBuilt(class)
 
     local cc = chart.classColor
-    titleText:SetText(string.format("|cff%02x%02x%02xDefense Cap Reference|r", cc.r * 255, cc.g * 255, cc.b * 255))
+    titleText:SetText(string.format("|cff%02x%02x%02x" .. L["Defense Cap Reference"] .. "|r", cc.r * 255, cc.g * 255, cc.b * 255))
     subtitleText:SetText(chart.label)
 
     window:Show()
@@ -386,9 +387,9 @@ charBtn:SetScript("OnClick", nil)
 
 charBtn:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:SetText("Defense Cap Reference", 1, 1, 1)
-    GameTooltip:AddLine("Click to view crit-immunity chart.", 0.7, 0.7, 0.7)
-    GameTooltip:AddLine("Shift+drag to move.", 0.6, 0.6, 0.6)
+    GameTooltip:SetText(L["Defense Cap Reference"], 1, 1, 1)
+    GameTooltip:AddLine(L["Click to view crit-immunity chart."], 0.7, 0.7, 0.7)
+    GameTooltip:AddLine(L["Shift+drag to move."], 0.6, 0.6, 0.6)
     GameTooltip:Show()
 end)
 charBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -435,7 +436,7 @@ function TBR_DefenseCap_UpdateColor()
     local c = db.defCapColor or (defaults and defaults.defCapColor) or {r = 0.6, g = 0.5, b = 0.2, a = 1}
     
     -- 1. Update the Window Border
-    window:SetBackdropBorderColor(c.r, c.g, c.b, c.a)
+    window:SetBackdropBorderColor(c.r, c.g, c.b, (c.a and c.a > 0) and c.a or 1)
     
     -- 2. Update the Top Divider (using SetVertexColor for textures)
     if topDivider then

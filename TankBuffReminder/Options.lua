@@ -1,25 +1,26 @@
 -- Options.lua
+local L   = TBR_L
 local cfg = TankBuffReminderConfig
 
 -------------------------------------------------------------------------------
 -- Root panel (registered with Settings, never holds content directly)
 -------------------------------------------------------------------------------
 local panel = CreateFrame("Frame", "TankBuffReminderOptions")
-panel.name  = "Tank Buff Reminder"
+panel.name  = L["Tank Buff Reminder"]
 
 local panelTitle = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
 panelTitle:SetPoint("TOPLEFT", 16, -16)
-panelTitle:SetText("Tank Buff Reminder")
+panelTitle:SetText(L["Tank Buff Reminder"])
 
 local panelSub = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 panelSub:SetPoint("TOPLEFT", panelTitle, "BOTTOMLEFT", 0, -4)
 panelSub:SetTextColor(0.6, 0.6, 0.6)
-panelSub:SetText("Select a tab below to configure.")
+panelSub:SetText(L["Select a tab below to configure."])
 
 -------------------------------------------------------------------------------
 -- Tab system
 -------------------------------------------------------------------------------
-local TAB_NAMES  = { "Buffs", "Appearance", "Alerts", "Automation", "Consumables" }
+local TAB_NAMES  = { L["Buffs"], L["Appearance"], L["Alerts"], L["Automation"], L["Consumables"] }
 local tabs       = {}      -- tab button frames
 local tabPages   = {}      -- content frames, one per tab
 local activeTab  = 1
@@ -179,7 +180,7 @@ local function SetDropdownLabel(dd, dbKey, defaultID)
     for _, sound in ipairs(cfg.sounds) do
         if sound.id == cur then UIDropDownMenu_SetText(dd, sound.name); return end
     end
-    UIDropDownMenu_SetText(dd, "Unknown Alert")
+    UIDropDownMenu_SetText(dd, L["Unknown Alert"])
 end
 
 -- Generic color button — dbKey is the CharDB key (a {r,g,b} table),
@@ -216,7 +217,7 @@ local function CreateColorButton(parent, label, x, y, dbKey, defaultColor, onCha
                 local r, g, b = ColorPickerFrame:GetColorRGB()
                 color.r, color.g, color.b = r, g, b
                 if hasAlpha then
-                    color.a = ColorPickerFrame:GetColorAlpha()
+                    color.a = ColorPickerFrame:GetColorAlpha() or 1
                 end
                 -- Update the UI button and fire the live refresh[cite: 1, 2]
                 swatch:SetVertexColor(color.r, color.g, color.b)
@@ -228,7 +229,7 @@ local function CreateColorButton(parent, label, x, y, dbKey, defaultColor, onCha
             -- Revert changes if user hits cancel[cite: 2]
             cancelFunc = function(prev)
                 color.r, color.g, color.b = prev.r, prev.g, prev.b
-                if hasAlpha then color.a = prev.opacity end
+                if hasAlpha then color.a = prev.opacity or 1 end
                 swatch:SetVertexColor(color.r, color.g, color.b)
                 if onChange then onChange() end
             end,
@@ -284,6 +285,7 @@ local function SyncSettings()
     globalDB.consTimerAlpha    = panel.consTimerAlphaSlider:GetValue()
     globalDB.consPulseSpeed    = panel.consPulseSlider:GetValue()
     globalDB.consMouseover     = panel.consMouseoverCB:GetChecked()
+    globalDB.consOrientation   = panel.consOrientVertRB:GetChecked() and "vertical" or "horizontal"
 
     -- Consumable colors
     if not globalDB.consGlowColor then globalDB.consGlowColor = {r=0, g=1, b=0, a=1} end
@@ -358,7 +360,7 @@ local CLASS_SECTIONS = {
 
 local function BuffName(key)
     for _, b in ipairs(cfg.buffs) do
-        if b.key == key then return b.name end
+        if b.key == key then return L[b.name] or b.name end
     end
     return key
 end
@@ -470,7 +472,7 @@ local colY0 = -10
 
 for ci, section in ipairs(CLASS_SECTIONS) do
     local x = colX[ci]
-    local hdr = MakeHeader(buffsPage, section.name, x + 24, colY0)
+    local hdr = MakeHeader(buffsPage, L[section.name] or section.name, x + 24, colY0)
     sectionHeaders[section.name] = hdr
     MakePriorityRows(section.name, GetOrderedKeys(section.name, section.keys), x, colY0 - 26)
 end
@@ -478,7 +480,7 @@ end
 local buffsNote = buffsPage:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 buffsNote:SetPoint("BOTTOMLEFT", buffsPage, "BOTTOMLEFT", 10, 10)
 buffsNote:SetTextColor(0.55, 0.55, 0.55)
-buffsNote:SetText("Only your class section is active.  * sets cast priority (top = first shown).")
+buffsNote:SetText(L["Only your class section is active.  * sets cast priority (top = first shown)."])
 
 -------------------------------------------------------------------------------
 -- TAB 2 — APPEARANCE (Scrollable)
@@ -511,78 +513,78 @@ local col1, col2 = 10, 260
 -------------------------------------------------------------------------------
 -- SECTION 1: MAIN BAR
 -------------------------------------------------------------------------------
-AppHeader("Main Bar Appearance", -10)
+AppHeader(L["Main Bar Appearance"], -10)
 
 -- Column 1: Core Visuals
-panel.glowSlider      = CreateFloatSlider(appChild, "Glow Size",       1.0, 3.0,  col1, -56,  "TBR_GlowSlider")
-panel.pulseSlider     = CreateFloatSlider(appChild, "Pulse Speed",     0,   10,   col1, -116, "TBR_PulseSlider")
-panel.alphaSlider     = CreateFloatSlider(appChild, "Frame Alpha",     0.001, 1.0, col1, -176, "TBR_AlphaSlider")
-panel.buffAlphaSlider = CreateFloatSlider(appChild, "Icon Alpha",      0.01, 1.0,  col1, -236, "TBR_BuffAlphaSlider")
-panel.paddingSlider   = CreateFloatSlider(appChild, "Button Spacing",  0,   20,   col1, -296, "TBR_PaddingSlider")
+panel.glowSlider      = CreateFloatSlider(appChild, L["Glow Size"],       1.0, 3.0,  col1, -56,  "TBR_GlowSlider")
+panel.pulseSlider     = CreateFloatSlider(appChild, L["Pulse Speed"],     0,   10,   col1, -116, "TBR_PulseSlider")
+panel.alphaSlider     = CreateFloatSlider(appChild, L["Frame Alpha"],     0.001, 1.0, col1, -176, "TBR_AlphaSlider")
+panel.buffAlphaSlider = CreateFloatSlider(appChild, L["Icon Alpha"],      0.01, 1.0,  col1, -236, "TBR_BuffAlphaSlider")
+panel.paddingSlider   = CreateFloatSlider(appChild, L["Button Spacing"],  0,   20,   col1, -296, "TBR_PaddingSlider")
 
 panel.glowColorBtn = CreateColorButton(
-    appChild, "Glow Color", col1 + 4, -364,
+    appChild, L["Glow Color"], col1 + 4, -364,
     "glowColor", cfg.defaults.glowColor,
     function() if TankBuffReminder_UpdateGlow then TankBuffReminder_UpdateGlow() end end
 )
 
 -- Column 2: Timers & Sweeps
-panel.buffBarScaleSlider  = CreateFloatSlider(appChild, "Bar Scale", 0.5, 3.0, col2, -56,  "TBR_BuffBarScaleSlider")
-panel.sweepAlphaSlider    = CreateFloatSlider(appChild, "Buff Sweep Alpha", 0.0, 1.0, col2, -116, "TBR_SweepAlphaSlider")
-panel.timerAlphaSlider    = CreateFloatSlider(appChild, "Timer Text Alpha", 0.0, 1.0, col2, -176, "TBR_TimerAlphaSlider")
-panel.timerOffsetSlider   = CreateIntSlider(appChild, "Text Vertical Offset", -32, 32, col2, -236, "TBR_TimerOffsetSlider")
-panel.timerFontSizeSlider = CreateIntSlider(appChild, "Font Size", 6, 32, col2, -296, "TBR_TimerFontSizeSlider")
+panel.buffBarScaleSlider  = CreateFloatSlider(appChild, L["Bar Scale"], 0.5, 3.0, col2, -56,  "TBR_BuffBarScaleSlider")
+panel.sweepAlphaSlider    = CreateFloatSlider(appChild, L["Buff Sweep Alpha"], 0.0, 1.0, col2, -116, "TBR_SweepAlphaSlider")
+panel.timerAlphaSlider    = CreateFloatSlider(appChild, L["Timer Text Alpha"], 0.0, 1.0, col2, -176, "TBR_TimerAlphaSlider")
+panel.timerOffsetSlider   = CreateIntSlider(appChild, L["Text Vertical Offset"], -32, 32, col2, -236, "TBR_TimerOffsetSlider")
+panel.timerFontSizeSlider = CreateIntSlider(appChild, L["Font Size"], 6, 32, col2, -296, "TBR_TimerFontSizeSlider")
 
 panel.timerColorBtn = CreateColorButton(
-    appChild, "Duration Text Color", col2 + 4, -356,
+    appChild, L["Duration Text Color"], col2 + 4, -356,
     "timerTextColor", cfg.defaults.timerTextColor,
     function() if TBR_UI_UpdateTimerStyle then TBR_UI_UpdateTimerStyle() end end
 )
 
 -- Value Changed Scripts for Live Preview (Main Bar)
 panel.buffBarScaleSlider:SetScript("OnValueChanged", function(self, v)
-    _G[self:GetName() .. "Text"]:SetText(string.format("Bar Scale: %.2f", v))
+    _G[self:GetName() .. "Text"]:SetText(string.format(L["Bar Scale"] .. ": %.2f", v))
     if TankBuffReminderDB then
         if TBR_UI_SetScale then TBR_UI_SetScale(v) end
     end
 end)
 panel.alphaSlider:SetScript("OnValueChanged", function(self, v)
-    _G[self:GetName() .. "Text"]:SetText(string.format("Frame Alpha: %.2f", v))
+    _G[self:GetName() .. "Text"]:SetText(string.format(L["Frame Alpha"] .. ": %.2f", v))
     if TankBuffReminderCharDB then
         TankBuffReminderCharDB.frameAlpha = v
         if TBR_UI_UpdateAlpha then TBR_UI_UpdateAlpha() end
     end
 end)
 panel.buffAlphaSlider:SetScript("OnValueChanged", function(self, v)
-    _G[self:GetName() .. "Text"]:SetText(string.format("Icon Alpha: %.2f", v))
+    _G[self:GetName() .. "Text"]:SetText(string.format(L["Icon Alpha"] .. ": %.2f", v))
     if TankBuffReminderCharDB then
         TankBuffReminderCharDB.buffAlpha = v
         if TBR_UI_UpdateAlpha then TBR_UI_UpdateAlpha() end
     end
 end)
 panel.sweepAlphaSlider:SetScript("OnValueChanged", function(self, v)
-    _G[self:GetName() .. "Text"]:SetText(string.format("Buff Sweep Alpha: %.2f", v))
+    _G[self:GetName() .. "Text"]:SetText(string.format(L["Buff Sweep Alpha"] .. ": %.2f", v))
     if TankBuffReminderCharDB then
         TankBuffReminderCharDB.sweepAlpha = v
         if TBR_UI_UpdateTimerStyle then TBR_UI_UpdateTimerStyle() end
     end
 end)
 panel.timerAlphaSlider:SetScript("OnValueChanged", function(self, v)
-    _G[self:GetName() .. "Text"]:SetText(string.format("Timer Text Alpha: %.2f", v))
+    _G[self:GetName() .. "Text"]:SetText(string.format(L["Timer Text Alpha"] .. ": %.2f", v))
     if TankBuffReminderCharDB then
         TankBuffReminderCharDB.timerAlpha = v
         if TBR_UI_UpdateTimerStyle then TBR_UI_UpdateTimerStyle() end
     end
 end)
 panel.timerOffsetSlider:SetScript("OnValueChanged", function(self, v)
-    _G[self:GetName() .. "Text"]:SetText(string.format("Text Vertical Offset: %d", v))
+    _G[self:GetName() .. "Text"]:SetText(string.format(L["Text Vertical Offset"] .. ": %d", v))
     if TankBuffReminderCharDB then
         TankBuffReminderCharDB.timerTextOffsetY = v
         if TBR_UI_UpdateTimerStyle then TBR_UI_UpdateTimerStyle() end
     end
 end)
 panel.timerFontSizeSlider:SetScript("OnValueChanged", function(self, v)
-    _G[self:GetName() .. "Text"]:SetText(string.format("Font Size: %d", v))
+    _G[self:GetName() .. "Text"]:SetText(string.format(L["Font Size"] .. ": %d", v))
     if TankBuffReminderCharDB then
         TankBuffReminderCharDB.timerFontSize = v
         if TBR_UI_UpdateTimerStyle then TBR_UI_UpdateTimerStyle() end
@@ -603,14 +605,14 @@ consDiv:SetSize(460, 1)
 consDiv:SetColorTexture(1, 1, 1, 0.15)
 consDiv:SetPoint("TOPLEFT", 10, -420)
 
-AppHeader("Consumable Bar Appearance", -440)
+AppHeader(L["Consumable Bar Appearance"], -440)
 
 -- Column 1: Cons Core & Color
-panel.consFrameAlphaSlider  = CreateFloatSlider(appChild, "Frame & Border Alpha", 0.0, 1.0, col1, -486, "TBR_ConsFrameAlphaSlider")
-panel.consScaleSlider       = CreateFloatSlider(appChild, "Bar Scale", 0.5, 2.0, col1, -546, "TBR_ConsScaleSlider")
-panel.consAlphaSlider       = CreateFloatSlider(appChild, "Icon Alpha (Active)", 0.0, 1.0, col1, -606, "TBR_ConsAlphaSlider")
-panel.consGlowAlphaSlider   = CreateFloatSlider(appChild, "Glow Alpha", 0.0, 1.0, col1, -666, "TBR_ConsGlowAlphaSlider")
-panel.consSweepAlphaSlider  = CreateFloatSlider(appChild, "Sweep Alpha", 0.0, 1.0, col1, -726, "TBR_ConsSweepAlphaSlider")
+panel.consFrameAlphaSlider  = CreateFloatSlider(appChild, L["Frame & Border Alpha"], 0.0, 1.0, col1, -486, "TBR_ConsFrameAlphaSlider")
+panel.consScaleSlider       = CreateFloatSlider(appChild, L["Bar Scale"], 0.5, 2.0, col1, -546, "TBR_ConsScaleSlider")
+panel.consAlphaSlider       = CreateFloatSlider(appChild, L["Icon Alpha (Active)"], 0.0, 1.0, col1, -606, "TBR_ConsAlphaSlider")
+panel.consGlowAlphaSlider   = CreateFloatSlider(appChild, L["Glow Alpha"], 0.0, 1.0, col1, -666, "TBR_ConsGlowAlphaSlider")
+panel.consSweepAlphaSlider  = CreateFloatSlider(appChild, L["Sweep Alpha"], 0.0, 1.0, col1, -726, "TBR_ConsSweepAlphaSlider")
 
 -- Glow color button — reads/writes globalDB.consGlowColor directly
 do
@@ -623,7 +625,7 @@ do
     btn.swatch = swatch
     local lbl = btn:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     lbl:SetPoint("LEFT", btn, "RIGHT", 8, 0)
-    lbl:SetText("Cons Glow Color")
+    lbl:SetText(L["Cons Glow Color"])
     btn:SetScript("OnClick", function()
         local db = TankBuffReminderDB
         if not db then return end
@@ -655,15 +657,15 @@ do
 end
 
 -- Column 2: Cons Layout & Timers
-panel.consPaddingSlider = CreateIntSlider(appChild, "Button Spacing", 0, 20, col2, -486, "TBR_ConsPaddingSlider")
-panel.consTimerFontSizeSlider = CreateIntSlider(appChild, "Timer Font Size", 8, 30, col2, -546, "TBR_ConsFontSizeSlider")
-panel.consTimerOffsetSlider = CreateIntSlider(appChild, "Timer Y Offset", -30, 30, col2, -606, "TBR_ConsOffsetSlider")
-panel.consTimerAlphaSlider = CreateFloatSlider(appChild, "Timer Alpha", 0.0, 1.0, col2, -666, "TBR_ConsTimerAlphaSlider")
+panel.consPaddingSlider = CreateIntSlider(appChild, L["Button Spacing"], 0, 20, col2, -486, "TBR_ConsPaddingSlider")
+panel.consTimerFontSizeSlider = CreateIntSlider(appChild, L["Timer Font Size"], 8, 30, col2, -546, "TBR_ConsFontSizeSlider")
+panel.consTimerOffsetSlider = CreateIntSlider(appChild, L["Timer Y Offset"], -30, 30, col2, -606, "TBR_ConsOffsetSlider")
+panel.consTimerAlphaSlider = CreateFloatSlider(appChild, L["Timer Alpha"], 0.0, 1.0, col2, -666, "TBR_ConsTimerAlphaSlider")
 
 -- Pulse Speed (New)
-panel.consPulseSlider = CreateFloatSlider(appChild, "Pulse Speed", 0.0, 8.0, col2, -726, "TBR_ConsPulseSlider")
+panel.consPulseSlider = CreateFloatSlider(appChild, L["Pulse Speed"], 0.0, 8.0, col2, -726, "TBR_ConsPulseSlider")
 panel.consPulseSlider:SetScript("OnValueChanged", function(self, v)
-    _G[self:GetName() .. "Text"]:SetText(string.format("Pulse Speed: %.2f", v))
+    _G[self:GetName() .. "Text"]:SetText(string.format(L["Pulse Speed"] .. ": %.2f", v))
     TankBuffReminderDB.consPulseSpeed = v
 end)
 
@@ -678,7 +680,7 @@ do
     btn.swatch = swatch
     local lbl = btn:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     lbl:SetPoint("LEFT", btn, "RIGHT", 8, 0)
-    lbl:SetText("Text Color")
+    lbl:SetText(L["Text Color"])
     btn:SetScript("OnClick", function()
         local db = TankBuffReminderDB
         if not db then return end
@@ -708,7 +710,7 @@ do
     panel.consTextColorBtn = btn
 end
 
-panel.consMouseoverCB = CreateCheckbox(appChild, "Hide until Mouseover")
+panel.consMouseoverCB = CreateCheckbox(appChild, L["Hide until Mouseover"])
 panel.consMouseoverCB:SetPoint("TOPLEFT", col2, -846)   -- Adjusted down
 panel.consMouseoverCB:SetScript("OnClick", function()
     if not TankBuffReminderDB then TankBuffReminderDB = {} end
@@ -716,6 +718,38 @@ panel.consMouseoverCB:SetScript("OnClick", function()
     if TBR_ConsBar_UpdateVisuals then TBR_ConsBar_UpdateVisuals() end
     SyncSettings()
 end)
+
+-- Orientation: Horizontal / Vertical radio buttons
+do
+    local orientLbl = appChild:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    orientLbl:SetPoint("TOPLEFT", col1, -838)
+    orientLbl:SetText(L["Bar Orientation"])
+
+    local rbH = CreateFrame("CheckButton", "TBR_ConsOrientHorizRB", appChild, "UIRadioButtonTemplate")
+    rbH:SetPoint("TOPLEFT", col1, -855)
+    rbH.text:SetText(L["Horizontal"])
+    panel.consOrientHorizRB = rbH
+
+    local rbV = CreateFrame("CheckButton", "TBR_ConsOrientVertRB", appChild, "UIRadioButtonTemplate")
+    rbV:SetPoint("LEFT", rbH, "RIGHT", 60, 0)
+    rbV.text:SetText(L["Vertical"])
+    panel.consOrientVertRB = rbV
+
+    rbH:SetScript("OnClick", function()
+        rbH:SetChecked(true)
+        rbV:SetChecked(false)
+        if TankBuffReminderDB then TankBuffReminderDB.consOrientation = "horizontal" end
+        panel._needsConsRebuild = true
+        SyncSettings()
+    end)
+    rbV:SetScript("OnClick", function()
+        rbV:SetChecked(true)
+        rbH:SetChecked(false)
+        if TankBuffReminderDB then TankBuffReminderDB.consOrientation = "vertical" end
+        panel._needsConsRebuild = true
+        SyncSettings()
+    end)
+end
 
 -------------------------------------------------------------------------------
 -- Live Previews (Cons Bar)
@@ -727,7 +761,7 @@ panel.consScaleSlider:SetScript("OnValueChanged", function(self, v)
     panel._needsConsRebuild = true
 end)
 panel.consPaddingSlider:SetScript("OnValueChanged", function(self, v)
-    _G[self:GetName() .. "Text"]:SetText(string.format("Button Spacing: %d", v))
+    _G[self:GetName() .. "Text"]:SetText(string.format(L["Button Spacing"] .. ": %d", v))
     TankBuffReminderDB.consPadding = v
     panel._needsConsRebuild = true
 end)
@@ -739,32 +773,32 @@ panel.consAlphaSlider:SetScript("OnValueChanged", function(self, v)
     if TBR_ConsBar_UpdateVisuals then TBR_ConsBar_UpdateVisuals() end
 end)
 panel.consGlowAlphaSlider:SetScript("OnValueChanged", function(self, v)
-    _G[self:GetName() .. "Text"]:SetText(string.format("Glow Alpha: %.2f", v))
+    _G[self:GetName() .. "Text"]:SetText(string.format(L["Glow Alpha"] .. ": %.2f", v))
     TankBuffReminderDB.consGlowAlpha = v
     if TBR_ConsBar_UpdateVisuals then TBR_ConsBar_UpdateVisuals() end
 end)
 panel.consSweepAlphaSlider:SetScript("OnValueChanged", function(self, v)
-    _G[self:GetName() .. "Text"]:SetText(string.format("Sweep Alpha: %.2f", v))
+    _G[self:GetName() .. "Text"]:SetText(string.format(L["Sweep Alpha"] .. ": %.2f", v))
     TankBuffReminderDB.consSweepAlpha = v
     if TBR_ConsBar_UpdateVisuals then TBR_ConsBar_UpdateVisuals() end
 end)
 panel.consTimerFontSizeSlider:SetScript("OnValueChanged", function(self, v)
-    _G[self:GetName() .. "Text"]:SetText(string.format("Timer Font Size: %d", v))
+    _G[self:GetName() .. "Text"]:SetText(string.format(L["Timer Font Size"] .. ": %d", v))
     TankBuffReminderDB.consTimerFontSize = v
     if TBR_ConsBar_UpdateVisuals then TBR_ConsBar_UpdateVisuals() end
 end)
 panel.consTimerOffsetSlider:SetScript("OnValueChanged", function(self, v)
-    _G[self:GetName() .. "Text"]:SetText(string.format("Timer Y Offset: %d", v))
+    _G[self:GetName() .. "Text"]:SetText(string.format(L["Timer Y Offset"] .. ": %d", v))
     TankBuffReminderDB.consTimerOffsetY = v
     if TBR_ConsBar_UpdateVisuals then TBR_ConsBar_UpdateVisuals() end
 end)
 panel.consTimerAlphaSlider:SetScript("OnValueChanged", function(self, v)
-    _G[self:GetName() .. "Text"]:SetText(string.format("Timer Alpha: %.2f", v))
+    _G[self:GetName() .. "Text"]:SetText(string.format(L["Timer Alpha"] .. ": %.2f", v))
     TankBuffReminderDB.consTimerAlpha = v
     if TBR_ConsBar_UpdateVisuals then TBR_ConsBar_UpdateVisuals() end
 end)
 panel.consFrameAlphaSlider:SetScript("OnValueChanged", function(self, v)
-    _G[self:GetName() .. "Text"]:SetText(string.format("Frame Alpha: %.2f", v))
+    _G[self:GetName() .. "Text"]:SetText(string.format(L["Frame Alpha"] .. ": %.2f", v))
     TankBuffReminderDB.consFrameAlpha = v
     if TBR_ConsBar_UpdateVisuals then TBR_ConsBar_UpdateVisuals() end
 end)
@@ -780,7 +814,7 @@ for _, s in ipairs(consSliders) do
 end
 
 -- Adjust Scroll Height for extra items
-appChild:SetHeight(900)
+appChild:SetHeight(960)
 
 -------------------------------------------------------------------------------
 -- TAB 3 — ALERTS
@@ -790,53 +824,53 @@ local alertPage = tabPages[3]
 local alX1, alX2 = 10, 280
 
 -- Column 1: Audio Notifications
-MakeHeader(alertPage, "Buff Alert Sound", alX1, -10)
+MakeHeader(alertPage, L["Buff Alert Sound"], alX1, -10)
 MakeDivider(alertPage, -28)
 
-panel.soundCB = CreateCheckbox(alertPage, "Play sound when a buff is missing", alX1, -42)
+panel.soundCB = CreateCheckbox(alertPage, L["Play sound when a buff is missing"], alX1, -42)
 panel.soundCB:SetScript("OnClick", SyncSettings)
 
 local soundLbl = alertPage:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 soundLbl:SetPoint("TOPLEFT", alX1 + 28, -70)
-soundLbl:SetText("Missing Buff Sound:")
+soundLbl:SetText(L["Missing Buff Sound:"])
 
 panel.soundDropdown = CreateSoundDropdown(alertPage, "TankBuffReminderSoundDropdown", alX1 + 10, -85)
 panel.soundDropdown.dbKey = "soundID"
 
 -- New Section: Removal Alerts (Moved from Automation)
-MakeHeader(alertPage, "Removal Alerts", alX1, -145)
+MakeHeader(alertPage, L["Removal Alerts"], alX1, -145)
 
-panel.removeSoundCB = CreateCheckbox(alertPage, "Enable removal alert sound (Salv/BoP)", alX1, -177)
+panel.removeSoundCB = CreateCheckbox(alertPage, L["Enable removal alert sound (Salv/BoP)"], alX1, -177)
 panel.removeSoundCB:SetScript("OnClick", SyncSettings)
 
 local removeSndLbl = alertPage:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 removeSndLbl:SetPoint("TOPLEFT", alX1 + 28, -205)
-removeSndLbl:SetText("Removal Alert Sound:")
+removeSndLbl:SetText(L["Removal Alert Sound:"])
 
 panel.removeSoundDropdown = CreateSoundDropdown(alertPage, "TBR_RemoveSoundDropdown", alX1 + 10, -220)
 panel.removeSoundDropdown.dbKey = "removeSoundID"
 
 -- Column 2: Taunt Alert System
-MakeHeader(alertPage, "Taunt Alert System", alX2, -10)
+MakeHeader(alertPage, L["Taunt Alert System"], alX2, -10)
 MakeDivider(alertPage, -28)
 
-panel.tauntEnabledCB = CreateCheckbox(alertPage, "Enable Taunt Failure Detection", alX2, -42)
-panel.tauntWarningCB = CreateCheckbox(alertPage, "Self Warning (chat message)",    alX2, -67)
-panel.tauntSayCB     = CreateCheckbox(alertPage, "Announce in /Say",               alX2, -92)
-panel.tauntPartyCB   = CreateCheckbox(alertPage, "Announce in /Party",             alX2, -117)
-panel.tauntRaidCB    = CreateCheckbox(alertPage, "Announce in /Raid",              alX2, -142)
+panel.tauntEnabledCB = CreateCheckbox(alertPage, L["Enable Taunt Failure Detection"], alX2, -42)
+panel.tauntWarningCB = CreateCheckbox(alertPage, L["Self Warning (chat message)"],    alX2, -67)
+panel.tauntSayCB     = CreateCheckbox(alertPage, L["Announce in /Say"],               alX2, -92)
+panel.tauntPartyCB   = CreateCheckbox(alertPage, L["Announce in /Party"],             alX2, -117)
+panel.tauntRaidCB    = CreateCheckbox(alertPage, L["Announce in /Raid"],              alX2, -142)
 
 for _, cb in ipairs({ panel.tauntEnabledCB, panel.tauntWarningCB,
                       panel.tauntSayCB, panel.tauntPartyCB, panel.tauntRaidCB }) do
     cb:SetScript("OnClick", SyncSettings)
 end
 
-panel.tauntSoundCB = CreateCheckbox(alertPage, "Play sound on taunt failure", alX2, -182)
+panel.tauntSoundCB = CreateCheckbox(alertPage, L["Play sound on taunt failure"], alX2, -182)
 panel.tauntSoundCB:SetScript("OnClick", SyncSettings)
 
 local tauntSndLbl = alertPage:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 tauntSndLbl:SetPoint("TOPLEFT", alX2 + 28, -210)
-tauntSndLbl:SetText("Taunt Failure Sound:")
+tauntSndLbl:SetText(L["Taunt Failure Sound:"])
 
 panel.tauntSoundDropdown = CreateSoundDropdown(alertPage, "TankBuffReminderTauntSoundDropdown", alX2 + 10, -225)
 panel.tauntSoundDropdown.dbKey = "tauntSoundID"
@@ -848,7 +882,7 @@ local autoPage = tabPages[4]
 local auX1, auX2 = 10, 310
 
 -- COLUMN 1: Combat Automation
-MakeHeader(autoPage, "Combat Automation", auX1, -10)
+MakeHeader(autoPage, L["Combat Automation"], auX1, -10)
 MakeDivider(autoPage, -28)
 
 -- Explanatory note for the radio options
@@ -857,11 +891,7 @@ autoNote:SetPoint("TOPLEFT", auX1, -48)
 autoNote:SetWidth(320)                    -- Increased width
 autoNote:SetJustifyH("LEFT")
 autoNote:SetTextColor(0.65, 0.65, 0.65)
-autoNote:SetText(
-    "• |cff00ff00Auto-remove|r: Removes buff |cffaaaaaaout of combat|r, shows icon |cffaaaaaawhile in combat|r.\n\n"..
-    "• |cff00ccffShow Icon|r: Only shows reminder icon (never removes).\n\n"..
-    "• |cffff5555Off|r: Disables both auto-removal and icon."
-)
+autoNote:SetText(L["AUTOMATION_NOTE"])
 
 -- Helper: builds a labeled radio trio (Auto-remove / Show icon / Off) for one spell
 local function MakeRemovalRadioRow(parent, label, x, y)
@@ -878,9 +908,9 @@ local function MakeRemovalRadioRow(parent, label, x, y)
         return rb
     end
     
-    local rAuto = MakeRadio("Auto-remove", x, y - 18)
-    local rIcon = MakeRadio("Show icon",   x + 115, y - 18)
-    local rOff  = MakeRadio("Off",         x + 225, y - 18)
+    local rAuto = MakeRadio(L["Auto-remove"], x, y - 18)
+    local rIcon = MakeRadio(L["Show icon"],   x + 115, y - 18)
+    local rOff  = MakeRadio(L["Off"],         x + 225, y - 18)
 
     local function SelectRadio(chosen)
         rAuto:SetChecked(chosen == rAuto)
@@ -899,30 +929,30 @@ end
 
 -- Adjusted Y positions (shifted down more)
 panel.salvAutoRB, panel.salvIconRB, panel.salvOffRB =
-    MakeRemovalRadioRow(autoPage, "Blessing of Salvation", auX1, -138)
+    MakeRemovalRadioRow(autoPage, L["Blessing of Salvation"], auX1, -138)
 
 panel.bopAutoRB, panel.bopIconRB, panel.bopOffRB =
-    MakeRemovalRadioRow(autoPage, "Blessing of Protection", auX1, -188)
+    MakeRemovalRadioRow(autoPage, L["Blessing of Protection"], auX1, -188)
 
-panel.tankRoleCB = CreateCheckbox(autoPage, "Auto-set Tank Role (5-man groups)", auX1, -238)
-panel.repairCB   = CreateCheckbox(autoPage, "Auto-Repair at Merchant", auX1, -263)
+panel.tankRoleCB = CreateCheckbox(autoPage, L["Auto-set Tank Role (5-man groups)"], auX1, -238)
+panel.repairCB   = CreateCheckbox(autoPage, L["Auto-Repair at Merchant"], auX1, -263)
 
 -- COLUMN 2: Tools & Maintenance
-MakeHeader(autoPage, "Tools", auX2, -10)
+MakeHeader(autoPage, L["Tools"], auX2, -10)
 MakeDivider(autoPage, -28)
 
-panel.defCapBtnShowCB = CreateCheckbox(autoPage, "Show Defense Cap button on Character Sheet", auX2, -42)
+panel.defCapBtnShowCB = CreateCheckbox(autoPage, L["Show Defense Cap button on Character Sheet"], auX2, -42)
 panel.defCapBtnShowCB:SetScript("OnClick", SyncSettings)
 
 local defBtn = CreateFrame("Button", nil, autoPage, "UIPanelButtonTemplate")
 defBtn:SetSize(190, 24)
 defBtn:SetPoint("TOPLEFT", auX2, -78)
-defBtn:SetText("Open Defense Cap Chart")
+defBtn:SetText(L["Open Defense Cap Chart"])
 defBtn:SetScript("OnClick", function()
     if TBR_DefenseCap_Toggle then 
         TBR_DefenseCap_Toggle()
     else 
-        print("|cFFFF0000[TBR] Defense Chart module not found.|r") 
+        print("|cFFFF0000" .. L["[TBR] Defense Chart module not found."] .. "|r") 
     end
 end)
 
@@ -930,7 +960,7 @@ end)
 -- and saving to TankBuffReminderCharDB.defCapColor automatically.
 panel.defCapColorBtn = CreateColorButton(
     autoPage, 
-    "Chart Frame Color", 
+    L["Chart Frame Color"], 
     auX2, -112, 
     "defCapColor", 
     {r = 0.6, g = 0.5, b = 0.2, a = 1}, 
@@ -942,7 +972,7 @@ panel.defCapColorBtn = CreateColorButton(
 local resetBtn = CreateFrame("Button", nil, autoPage, "UIPanelButtonTemplate")
 resetBtn:SetSize(160, 24)
 resetBtn:SetPoint("BOTTOMLEFT", autoPage, "BOTTOMLEFT", auX2, 20)
-resetBtn:SetText("Reset All Settings")
+resetBtn:SetText(L["Reset All Settings"])
 resetBtn:SetScript("OnClick", function()
     if TankBuffReminderCharDB then table.wipe(TankBuffReminderCharDB) end
     if TankBuffReminderDB then table.wipe(TankBuffReminderDB) end
@@ -954,7 +984,7 @@ end)
 local resetLbl = autoPage:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 resetLbl:SetPoint("BOTTOMLEFT", resetBtn, "TOPLEFT", 0, 10)
 resetLbl:SetTextColor(0.8, 0.5, 0.5)
-resetLbl:SetText("Caution: This wipes all settings!")
+resetLbl:SetText(L["Caution: This wipes all settings!"])
 
 function panel.refresh()
     if not TankBuffReminderCharDB then TankBuffReminderCharDB = {} end
@@ -1028,6 +1058,11 @@ function panel.refresh()
     panel.consTimerAlphaSlider:SetValue(globalDB.consTimerAlpha or 1.0)
     panel.consPulseSlider:SetValue(globalDB.consPulseSpeed or 3)
     panel.consMouseoverCB:SetChecked(globalDB.consMouseover or false)
+
+    -- Orientation radio buttons
+    local isVert = (globalDB.consOrientation == "vertical")
+    panel.consOrientHorizRB:SetChecked(not isVert)
+    panel.consOrientVertRB:SetChecked(isVert)
 
     -- Consumable Timers Refresh
     panel.consTimerFontSizeSlider:SetValue(globalDB.consTimerFontSize or 12)
@@ -1141,10 +1176,10 @@ local csX1 = 10
 
 panel.consCBs = {}
 
-MakeHeader(consPage, "Consumable Bar", csX1, -10)
+MakeHeader(consPage, L["Consumable Bar"], csX1, -10)
 MakeDivider(consPage, -28)
 
-panel.consBarEnabledCB = CreateCheckbox(consPage, "Show Consumable Bar", csX1, -38)
+panel.consBarEnabledCB = CreateCheckbox(consPage, L["Show Consumable Bar"], csX1, -38)
 panel.consBarEnabledCB:SetScript("OnClick", function()
     panel._needsConsRebuild = true -- SET THE FLAG HERE
     SyncSettings()
@@ -1154,19 +1189,19 @@ end)
 local consNote = consPage:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 consNote:SetPoint("TOPLEFT", csX1 + 28, -60)
 consNote:SetTextColor(0.55, 0.55, 0.55)
-consNote:SetText("Shift+drag the bar to move.   |cff999999Color Legend:|r ")
+consNote:SetText(L["Shift+drag the bar to move.   |cff999999Color Legend:|r "])
 
 -- 2. "Druid-Safe" text chained to the end of the instruction
 local legendGreen = consPage:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 legendGreen:SetPoint("LEFT", consNote, "RIGHT", 0, 0)
 legendGreen:SetTextColor(0.4, 1, 0.4)
-legendGreen:SetText("Druid-Safe (instant)  ")
+legendGreen:SetText(L["Druid-Safe (instant)  "])
 
 -- 3. "Drops Form" text chained to the end of the green text
 local legendOrange = consPage:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 legendOrange:SetPoint("LEFT", legendGreen, "RIGHT", 4, 0)
 legendOrange:SetTextColor(1, 0.7, 0.2)
-legendOrange:SetText("Drops Form (cast time)")
+legendOrange:SetText(L["Drops Form (cast time)"])
 
 -- Plain ScrollFrame + a separate Slider for the scrollbar.
 -- UIPanelScrollBarTemplate must go on a Slider, not a ScrollFrame.
@@ -1212,7 +1247,7 @@ if cfg.consumables then
     for _, cat in ipairs(catOrder) do
         local hdr = consScrollChild:CreateFontString(nil, "ARTWORK", "GameFontNormal")
         hdr:SetPoint("TOPLEFT", csX1, yPos)
-        hdr:SetText(cat)
+        hdr:SetText(L[cat] or cat)
         hdr:SetTextColor(1, 0.82, 0)
         yPos = yPos - 20
 
@@ -1228,7 +1263,7 @@ if cfg.consumables then
             if entry.category == cat then
                 local k  = "cons_" .. entry.key
                 local xC = (colIdx % 2 == 0) and csX1 or (csX1 + TWO_COL_W)
-                local cb = CreateCheckbox(consScrollChild, entry.label, xC, yPos)
+                local cb = CreateCheckbox(consScrollChild, L[entry.label] or entry.label, xC, yPos)
                 cb:SetScript("OnClick", function()
                     panel._needsConsRebuild = true
                     SyncSettings()
@@ -1263,7 +1298,7 @@ legendNote:SetPoint("TOPLEFT", csX1, legendY)
 legendNote:SetTextColor(0.7, 0.7, 0.7)
 legendNote:SetJustifyH("LEFT")
 legendNote:SetWidth(420) -- Keeps it from running off the side
-legendNote:SetText("|cffffd100Note:|r Rare server-timing issues (CC landing during a shift) may occasionally leave you in caster form.")
+legendNote:SetText(L["CONS_TIMING_NOTE"])
 -------------------------------------------------------------------------------
 -- Register with WoW Settings UI
 -------------------------------------------------------------------------------

@@ -113,15 +113,15 @@ TankBuffReminderConfig = {
         -- Potions
         { key="healPotion",      label="Healing Potion",          category="Potions", itemIDs={22829}, icon="Interface\\Icons\\inv_potion_167", defaultOn=false, isPotionType=true,  druidInstant=true, druidWarn=false },
         { key="manaPotion",      label="Mana Potion",             category="Potions", itemIDs={22832}, icon="Interface\\Icons\\inv_potion_168", defaultOn=false, isPotionType=true,  druidInstant=true, druidWarn=false },
-        { key="ironshield",      label="Ironshield Potion",       category="Potions", itemIDs={22849}, icon="Interface\\Icons\\inv_potion_155", defaultOn=false, isPotionType=true,  druidInstant=true, druidWarn=false },
-        { key="hastePotion",     label="Haste Potion",            category="Potions", itemIDs={22838}, icon="Interface\\Icons\\inv_potion_156", defaultOn=false, isPotionType=true,  druidInstant=true, druidWarn=false },
-        { key="destroPotion",    label="Destruction Potion",      category="Potions", itemIDs={22839}, icon="Interface\\Icons\\inv_potion_162", defaultOn=false, isPotionType=true,  druidInstant=true, druidWarn=false },
-        { key="mightyRage",      label="Mighty Rage Potion",      category="Potions", itemIDs={13442}, icon="Interface\\Icons\\inv_potion_41",  defaultOn=false, isPotionType=true,  druidInstant=true, druidWarn=false },
-        { key="freeAction",      label="Free Action Potion",      category="Potions", itemIDs={5634},  icon="Interface\\Icons\\inv_potion_04",  defaultOn=false, isPotionType=true,  druidInstant=true, druidWarn=false },
+        { key="ironshield",      label="Ironshield Potion",       category="Potions", itemIDs={22849}, icon="Interface\\Icons\\inv_potion_155", defaultOn=false, isPotionType=true,  druidInstant=true, druidWarn=false, buffSpellID=37515 },
+        { key="hastePotion",     label="Haste Potion",            category="Potions", itemIDs={22838}, icon="Interface\\Icons\\inv_potion_156", defaultOn=false, isPotionType=true,  druidInstant=true, druidWarn=false, buffSpellID=28507 },
+        { key="destroPotion",    label="Destruction Potion",      category="Potions", itemIDs={22839}, icon="Interface\\Icons\\inv_potion_162", defaultOn=false, isPotionType=true,  druidInstant=true, druidWarn=false, buffSpellID=28508 },
+        { key="mightyRage",      label="Mighty Rage Potion",      category="Potions", itemIDs={13442}, icon="Interface\\Icons\\inv_potion_41",  defaultOn=false, isPotionType=true,  druidInstant=true, druidWarn=false, buffSpellID=17528 },
+        { key="freeAction",      label="Free Action Potion",      category="Potions", itemIDs={5634},  icon="Interface\\Icons\\inv_potion_04",  defaultOn=false, isPotionType=true,  druidInstant=true, druidWarn=false, buffSpellID=6615  },
         { key="superRejuv",      label="Super Rejuvenation",      category="Potions", itemIDs={22850}, icon="Interface\\Icons\\inv_potion_150", defaultOn=false, isPotionType=true,  druidInstant=true, druidWarn=false },
         { key="auchenaiMana",    label="Auchenai Mana Potion",    category="Potions", itemIDs={32948}, icon="Interface\\Icons\\inv_potion_171", defaultOn=false, isPotionType=true,  druidInstant=true, druidWarn=false },
-        { key="nethergonVapor",  label="Bottled Nethergon Vapor", category="Potions", itemIDs={32905}, icon="Interface\\Icons\\inv_potion_143", defaultOn=false, isPotionType=true,  druidInstant=true, druidWarn=false },
-        { key="nethergonEnergy", label="Bottled Nethergon Energy", category="Potions", itemIDs={32902}, icon="Interface\\Icons\\inv_potion_147", defaultOn=false, isPotionType=true,  druidInstant=true, druidWarn=false },
+        { key="nethergonVapor",  label="Bottled Nethergon Vapor", category="Potions", itemIDs={32905}, icon="Interface\\Icons\\inv_potion_143", defaultOn=false, isPotionType=true,  druidInstant=true, druidWarn=false, buffSpellID=38929 },
+        { key="nethergonEnergy", label="Bottled Nethergon Energy", category="Potions", itemIDs={32902}, icon="Interface\\Icons\\inv_potion_147", defaultOn=false, isPotionType=true,  druidInstant=true, druidWarn=false, buffSpellID=38927 },
         
         -- Protection Potions
         { key="protFrost",  label="Major Frost Protection",  category="Potions", itemIDs={22823}, icon="Interface\\Icons\\inv_potion_145", defaultOn=false, isPotionType=true, druidInstant=true, druidWarn=false },
@@ -131,10 +131,10 @@ TankBuffReminderConfig = {
         { key="protArcane", label="Major Arcane Protection", category="Potions", itemIDs={22845}, icon="Interface\\Icons\\inv_potion_149", defaultOn=false, isPotionType=true, druidInstant=true, druidWarn=false },
         
         -- Flasks
-        { key="flaskFortification", label="Flask of Fortification",      category="Flasks", itemIDs={22851, 32901}, icon="Interface\\Icons\\inv_potion_155", defaultOn=false, druidInstant=true, druidWarn=false },
-        { key="flaskRelentless",    label="Flask of Relentless Assault", category="Flasks", itemIDs={22854, 32903}, icon="Interface\\Icons\\inv_potion_154", defaultOn=false, druidInstant=true, druidWarn=false },
-        { key="flaskChromatic",     label="Flask of Chromatic Wonder",   category="Flasks", itemIDs={33208},        icon="Interface\\Icons\\inv_potion_157", defaultOn=false, druidInstant=true, druidWarn=false },
-        { key="flaskBlinding",      label="Flask of Blinding Light",     category="Flasks", itemIDs={22861, 32902}, icon="Interface\\Icons\\inv_potion_151", defaultOn=false, druidInstant=true, druidWarn=false },
+        { key="flaskFortification", label="Flask of Fortification",      category="Flasks", itemIDs={22851, 32901}, icon="Interface\\Icons\\inv_potion_155", defaultOn=false, druidInstant=true, druidWarn=false, buffSpellID=17628  },
+        { key="flaskRelentless",    label="Flask of Relentless Assault", category="Flasks", itemIDs={22854, 32903}, icon="Interface\\Icons\\inv_potion_154", defaultOn=false, druidInstant=true, druidWarn=false, buffSpellID=28520  },
+        { key="flaskChromatic",     label="Flask of Chromatic Wonder",   category="Flasks", itemIDs={33208},        icon="Interface\\Icons\\inv_potion_157", defaultOn=false, druidInstant=true, druidWarn=false, buffSpellID=42735  },
+        { key="flaskBlinding",      label="Flask of Blinding Light",     category="Flasks", itemIDs={22861, 32902}, icon="Interface\\Icons\\inv_potion_151", defaultOn=false, druidInstant=true, druidWarn=false, buffSpellID=28518  },
 
         -- Guardian Elixirs
         { key="elixirMajorMageblood", label="Elixir of Major Mageblood",   category="Guardian Elixirs", itemIDs={22840}, icon="Interface\\Icons\\inv_potion_170", defaultOn=false, druidInstant=true, druidWarn=false, buffSpellID=38913 },
