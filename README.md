@@ -1,71 +1,113 @@
 ![](https://noobtrap.eu/images/crystallights/Tonk.png)
 
-**Tank Buff Reminder** is a lightweight but powerful addon designed to help tanks maintain optimal buffs and consumables while reducing mental load during raids and dungeons.
+**Tank Buff Reminder** is a powerful all‑in‑one toolkit designed to help tanks maintain optimal buffs, consumables, and awareness while reducing mental load during raids and dungeons.
 
-It features a clean, dynamic buff bar, a smart consumable bar, automated buff removal, taunt alerts, and a defense cap reference tool.
+It features a dynamic buff bar, a smart consumable bar (with druid‑safe instant‑shift macros), automated buff removal, taunt and threat alerts, a defense cap reference tool, and a full configuration UI.
 
-## Core Features
+<span style="color:#ced4d9">Now with translation support for all 7 additional locales covering all retail WoW regions.</span>
 
-### 1\. Dynamic Buff Bar
+enUS · deDE · frFR · esES · ruRU · zhCN · zhTW · koKR
 
-*   Real-time tracking of essential tank buffs
+***
+
+# Core Features
+
+## Dynamic Buff Bar
+
+*   Real‑time tracking of essential tank buffs
 *   Missing buffs glow and pulse to grab your attention
 *   Secure buttons — click any missing buff icon to cast it instantly
-*   Draggable using Shift+Click resizable with adjustable padding and scale in Options.
-*   Class-specific tracking:
+*   Draggable with Shift+Click, resizable with adjustable padding and scale
+*   Class‑specific tracking:
     *   **Druid**: Thorns, Mark/Gift of the Wild, Omen of Clarity
     *   **Warrior**: Battle Shout, Commanding Shout, Defensive Stance
     *   **Paladin**: Righteous Fury, Devotion Aura
 
-### 2\. Consumable Bar (New!)
+***
 
-*   Smart bar showing Healthstones, Potions, Food, Weapon Buffs, Scrolls, etc.
-*   Set Hotkey using CTRL+Click, Clear Hotkey using Backspace.
-*   Large list of Tank Favorite Consumables to track.
-*   Druid-specific bear-safe macros (auto re-form after use)
-*   Configurable appearance (scale, glow, pulse speed, colors, timer, mouseover, etc.)
-*   Shows counts and cooldowns clearly
+## Consumable Bar
+
+*   Smart bar showing Healthstones, Potions, Food, Weapon Buffs, Scrolls, Engineering items, and more
+*   Set Hotkey using **CTRL+Click**, clear with **Backspace**
+*   Large catalog of tank‑relevant consumables (100+ items)
+*   **Druid‑safe instant‑shift macros** (auto re‑form after use)
+*   **CC Protection** prevents shifting out of form while stunned/feared/silenced
+*   Fully configurable appearance (scale, glow, pulse speed, colors, timers, mouseover, orientation)
+*   Shows item counts and cooldowns clearly
 *   Shared potion cooldown support
 
-### 3\. Smart Buff Removal (Improved)
+***
 
-*   **Auto-remove**: Automatically cancels unwanted buffs (Salvation, BoP, etc.) **out of combat**
-*   **In-combat fallback**: Shows a reminder icon while in combat
-*   **Show Icon Only**: Never auto-removes, just shows clickable reminder
+## Smart Buff Removal
+
+*   **Auto‑remove**: Automatically cancels unwanted buffs (Salvation or BoP) **out of combat**
+*   **In‑combat fallback**: Shows a pulsing red reminder icon you can click to remove
+*   **Show Icon Only**: Never auto‑removes, just shows a clickable reminder
 *   **Off**: Completely disabled
+*   Movable, scalable, and spacing‑adjustable in the Options panel
 
-### 4\. Automation & Quality of Life
+***
 
-*   Auto-set Tank Role in 5-man groups
-*   Auto-Repair at merchants with cost summary
-*   Taunt failure detection (Miss/Resist/Immune) with smart batching
+## Automation & Quality of Life
+
+*   Auto‑set Tank Role in 5‑man groups or raids
+*   Auto‑Repair at merchants with cost summary
+*   **Taunt failure detection** (Miss / Resist / Immune) with smart batching
+*   **Threat Alert System** detects early‑pull threat issues (misses, resists, CC)
 *   Multiple announce channels and configurable alert sounds
+*   PvP‑safe (alerts automatically disabled in BGs/Arenas)
 
-### 5\. Defense Cap Reference
+***
 
-*   Quick-access crit immunity chart for Warriors, Druids, and Paladins
-*   Integrated button on your Character Paperdoll screen
+## Defense Cap Reference Tool
+
+*   Quick‑access crit immunity chart for Warriors, Druids, and Paladins
+*   Integrated button on your Character Paperdoll
 *   Shows your current Defense skill vs required cap
+*   Boss Level Selection (70–73) for accurate crit immunity thresholds
+*   Optional stats panel showing Avoidance, Defense, Hit, Expertise, Armor, EHP, and more
 *   Color Theme Picker in Options
 
-### 6\. Customization
+***
 
-*   Full options panel (`/tbr`)
+## Customization
+
+*   Full options panel (`/tbr`) with 5 organized tabs:
+    *   Buffs
+    *   Appearance
+    *   Alerts
+    *   Automation
+    *   Consumables
 *   Adjustable visuals for both buff bar and consumable bar
 *   Glow color, text color, pulse speed, alpha, timer position, and more
-*   Priority ordering of Missing Buffs.
+*   Priority ordering of tracked buffs
+*   Per‑character settings with instant UI rebuilds
 
-## Commands
+***
+
+# Commands
 
 *   `/tbr` — Open the Options Panel
 *   `/tbrcap` — Show Defense Cap Reference
 
-## Installation
+***
+
+# Installation
 
 1.  Download the latest version
-2.  Extract the `TankBuffReminder` folder into your `World of Warcraft/_classic_/Interface/AddOns/` directory
+2.  Extract the `TankBuffReminder` folder into:  
+    `World of Warcraft/_classic_/Interface/AddOns/`
 3.  Restart WoW or type `/reload`
 
-## Author
+***
+
+# Author
 
 **Gravebear**
+
+### Special Thanks to Tanks who helped test and provide feedback:
+
+*   **Anthal**
+*   **Bambàm**
+*   **BearStance**
+*   **Bison**
