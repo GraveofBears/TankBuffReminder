@@ -78,9 +78,12 @@ local function ProcessResistBuffer()
         PlaySound(soundID, "Master")
     end
 
+    -- Chat Announcements
     if IsInGroup() then
         if TankBuffReminderCharDB.tauntSay then
             SendChatMessage(msg, "SAY")
+        elseif TankBuffReminderCharDB.tauntYell then
+            SendChatMessage(msg, "YELL")
         elseif TankBuffReminderCharDB.tauntRaid and IsInRaid() then
             SendChatMessage(msg, "RAID")
         elseif TankBuffReminderCharDB.tauntParty then

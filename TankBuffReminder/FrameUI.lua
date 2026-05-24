@@ -1,16 +1,21 @@
 -- FrameUI.lua
 local cfg = TankBuffReminderConfig
 
-local BASE_SIZE, PULSE_INTERVAL = 64, 0.20
-local SCALE_MIN, SCALE_MAX     = 0.5, 3.0   -- used by Options slider
-local math_max, math_min, math_sin, math_pi, InCombatLockdown = math.max, math.min, math.sin, math.pi, InCombatLockdown
+local BASE_SIZE      = cfg.defaults.buffBaseSize or 48
+local PULSE_INTERVAL = 0.20
+local SCALE_MIN      = cfg.defaults.buffScaleMin or 0.5
+local SCALE_MAX      = cfg.defaults.buffScaleMax or 3.0
+
+local math_max, math_min, math_sin, math_pi, InCombatLockdown =
+      math.max, math.min, math.sin, math.pi, InCombatLockdown
 
 -- Pools
 local glowPool = {}
 local slots = {}
 local framePool = {}
 local slotPool = {}
--- Pre-allocated aura cache slots — reused every update, zero allocations
+
+-- Pre-allocated aura cache
 local currentAuraCache = {}
 local _auraCachePool = {}
 do
@@ -87,8 +92,12 @@ anchor:SetScript("OnMouseUp", function(self)
     end
 end)
 
+-- Clean parent pass-through bounds routing
+anchor:SetPropagateMouseMotion(true)
+anchor:SetPropagateMouseClicks(true)
+
 -------------------------------------------------------------------------------
--- Public Scale API (called by the Appearance slider in Options.lua)
+-- Public Scale API
 -------------------------------------------------------------------------------
 function TBR_UI_SetScale(value)
     local newScale = math_max(SCALE_MIN, math_min(SCALE_MAX, value))
@@ -179,20 +188,51 @@ anchor:SetScript("OnUpdate", function(self, elapsed)
 
     local alphaWave = 0.75 + math_sin(pulseTimer) * 0.25
     local userBuffAlpha = db.buffAlpha or 1.0
+    
+    -- Check Shift state dynamically on update loops
+    local isShift = IsShiftKeyDown()
+    local inCombat = InCombatLockdown()
+
+    -- Safety check: Force drop attachment if shift is released off-frame during drag
+    if self.isMoving and not isShift then
+        self:StopMovingOrSizing()
+        self.isMoving = false
+        if TankBuffReminderDB then
+            local p, _, rp, x, y = self:GetPoint()
+            TankBuffReminderDB.f1_pos = { p = p, rp = rp, x = x, y = y }
+        end
+    end
 
     for i = 1, #slots do
         local slot = slots[i]
-        if slot.isMissing then
+        local btn = slot.btn
+        local isMissing = (slot.isMissing == true)
+
+        -- Dynamically manage click-mask overlay visibility based on key environment
+        if btn.dragMask then
+            if isShift and not inCombat then
+                btn.dragMask:Show()
+            else
+                btn.dragMask:Hide()
+            end
+        end
+
+        if isMissing then
             slot.icon:SetAlpha(1.0)
             slot.icon:SetDesaturated(false)
+            
             if slot.glow then
                 slot.glow:Show()
                 slot.glow:SetAlpha(alphaWave)
             end
+            
             local sAlpha = db.sweepAlpha or 0.6
             slot.cd:SetSwipeColor(0, 0, 0, sAlpha)
         else
-            if slot.glow then slot.glow:Hide() end
+            if slot.glow then
+                slot.glow:Hide()
+            end
+            
             slot.icon:SetAlpha(userBuffAlpha * 0.4)
             slot.icon:SetDesaturated(true)
             slot.cd:SetSwipeColor(0.1, 0.1, 0.1, userBuffAlpha * 0.55)
@@ -201,9 +241,9 @@ anchor:SetScript("OnUpdate", function(self, elapsed)
 end)
 
 -------------------------------------------------------------------------------
--- Slot Factory
+-- Slot Factory (Must be global)
 -------------------------------------------------------------------------------
-local function MakeSlot(index, entry, currentSize)
+function MakeSlot(index, entry, currentSize)
     local spellName, _, iconTex = GetSpellInfo(entry.spellID)
     if not spellName then return nil end
 
@@ -215,12 +255,9 @@ local function MakeSlot(index, entry, currentSize)
         btn:RegisterForClicks("AnyUp", "AnyDown")
         btn:SetAttribute("unit", "player")
 
-        btn:SetScript("OnMouseDown", function(self, button)
-            if IsShiftKeyDown() then anchor:GetScript("OnMouseDown")(anchor, button) end
-        end)
-        btn:SetScript("OnMouseUp", function(self, button)
-            anchor:GetScript("OnMouseUp")(anchor, button)
-        end)
+        -- Clear internal event leakage 
+        btn:SetPropagateMouseMotion(true)
+        btn:SetPropagateMouseClicks(false)
 
         btn.icon = btn:CreateTexture(nil, "ARTWORK")
         btn.icon:SetAllPoints()
@@ -230,8 +267,23 @@ local function MakeSlot(index, entry, currentSize)
         btn.cd:SetAllPoints()
         btn.cd:SetDrawEdge(false)
 
-        -- Glow is now handled via pool in MakeSlot
         btn.glow = GetOrCreateGlow(btn)
+
+        -- Shift-Drag Mask Interceptor Frame
+        local mask = CreateFrame("Frame", nil, btn)
+        mask:SetAllPoints()
+        mask:EnableMouse(true)
+        mask:Hide()
+        btn.dragMask = mask
+
+        mask:SetScript("OnMouseDown", function(self, button)
+            local p = self:GetParent():GetParent()
+            if p:GetScript("OnMouseDown") then p:GetScript("OnMouseDown")(p, button) end
+        end)
+        mask:SetScript("OnMouseUp", function(self, button)
+            local p = self:GetParent():GetParent()
+            if p:GetScript("OnMouseUp") then p:GetScript("OnMouseUp")(p, button) end
+        end)
 
         btn:SetScript("OnEnter", function(self)
             if not anchor.isMoving then
@@ -242,7 +294,6 @@ local function MakeSlot(index, entry, currentSize)
         end)
         btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     else
-        -- Reuse case: re-attach glow
         if not btn.glow then
             btn.glow = GetOrCreateGlow(btn)
         end
@@ -258,13 +309,13 @@ local function MakeSlot(index, entry, currentSize)
     btn:SetPoint("LEFT", anchor, "LEFT", (index - 1) * (currentSize + spacing) + 4, 0)
     btn:Show()
 
-    slot.btn          = btn
-    slot.icon         = btn.icon
-    slot.glow         = btn.glow
-    slot.cd           = btn.cd
-    slot.key          = entry.key
-    slot.spellID      = entry.spellID
-    slot.isMissing    = false
+    slot.btn = btn
+    slot.icon = btn.icon
+    slot.glow = btn.glow
+    slot.cd = btn.cd
+    slot.key = entry.key
+    slot.spellID = entry.spellID
+    slot.isMissing = false
 
     return slot
 end
@@ -273,41 +324,40 @@ end
 -- Rebuild & Update
 -------------------------------------------------------------------------------
 function TBR_UI_Update(buffStates, anyMissing)
-    anchor.anyMissing = anyMissing
+    anchor.anyMissing = anyMissing or false
 
     table.wipe(currentAuraCache)
     local poolIdx = 0
     for i = 1, 40 do
         local name, _, _, _, duration, expirationTime = UnitBuff("player", i)
         if not name then break end
-        
+       
         poolIdx = poolIdx + 1
         local cacheEntry = _auraCachePool[poolIdx]
-        cacheEntry.dur = duration
-        cacheEntry.exp = expirationTime
+        cacheEntry.dur = duration or 0
+        cacheEntry.exp = expirationTime or 0
         currentAuraCache[name] = cacheEntry
     end
 
     for _, slot in ipairs(slots) do
-        slot.isMissing = buffStates[slot.key]
-        -- Use the spell name we already retrieved when the slot was created
-        local spellName = GetSpellInfo(slot.spellID) 
-        local aura = currentAuraCache[spellName]
+        slot.isMissing = (buffStates and buffStates[slot.key] == true)
+
+        local spellName = GetSpellInfo(slot.spellID)
+        local aura = spellName and currentAuraCache[spellName]
 
         if aura and aura.dur and aura.dur > 0 then
             local start = aura.exp - aura.dur
             local currentStart, currentDur = slot.cd:GetCooldownTimes()
-            
+           
             if math.abs((currentStart / 1000) - start) > 0.1 or math.abs((currentDur / 1000) - aura.dur) > 0.1 then
                 slot.cd:SetCooldown(start, aura.dur)
                 slot.cd:Show()
             end
-        elseif slot.isMissing then
-            slot.cd:Hide()
         else
             slot.cd:Hide()
         end
     end
+
     TBR_UI_UpdateAlpha()
 end
 
@@ -320,6 +370,7 @@ function TBR_UI_Rebuild()
                 ReleaseGlow(slot.btn.glow)
                 slot.btn.glow = nil
             end
+            if slot.btn.dragMask then slot.btn.dragMask:Hide() end
             table.insert(framePool, slot.btn)
         end
         table.wipe(slot)
@@ -336,10 +387,10 @@ function TBR_UI_Rebuild()
     anchor:Show()
     TBR_UI_UpdateAlpha()
 
-    local scale       = TankBuffReminderDB.scale or 1
+    local scale = TankBuffReminderDB.scale or 1
     local currentSize = BASE_SIZE * scale
-    local spacing     = TankBuffReminderCharDB.buttonPadding or 4
-    local padding     = 8
+    local spacing = TankBuffReminderCharDB.buttonPadding or 4
+    local padding = 8
 
     local totalWidth = (currentSize * #tracked) + (spacing * (#tracked - 1)) + padding
     anchor:SetSize(totalWidth, currentSize + padding)

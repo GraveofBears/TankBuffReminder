@@ -1,4 +1,5 @@
 -- ConsumableBar.lua
+local L   = TBR_L
 local cfg = TankBuffReminderConfig
 
 -- Upvalued for performance
@@ -14,12 +15,12 @@ local GetItemCount = GetItemCount
 local GetWeaponEnchantInfo = GetWeaponEnchantInfo
 local UnitBuff = UnitBuff
 local PULSE_INTERVAL = 0.25
-local BASE_SIZE = 36
+local BASE_SIZE = TankBuffReminderConfig.defaults.consBaseSize or 36
 local PADDING = 6
 local POTION_SHARED_CD_ITEM = 13446
 
 -------------------------------------------------------------------------------
--- Pools & Memory Management (declared early so hotkey functions can reference slots)
+-- Pools & Memory Management
 -------------------------------------------------------------------------------
 local slots = {}
 local framePool = {}
@@ -33,40 +34,40 @@ local lastBuffScan = 0
 local WELL_FED_NAME = "Well Fed"
 local _currentBuffs = {}
 local _lastCounts = {}
+local _tempColor = { r = 0, g = 1, b = 0, a = 1 }
+
+-- Loss-of-control
+local LOC_BLOCK = { STUN=true, STUN_MECHANIC=true, FEAR=true,
+                    CHARM=true, CONFUSE=true, POSSESS=true }
 
 -- Pre-allocated pool for buff scan entries — reused every second, zero allocations
 local _buffEntryPool = {}
 do
     for i = 1, 40 do _buffEntryPool[i] = { exp = 0, dur = 0 } end
 end
-local _buffEntryCount = 0  -- tracks how many pool entries are in use this scan
+local _buffEntryCount = 0  
 
 -------------------------------------------------------------------------------
 -- Hotkey System
 -------------------------------------------------------------------------------
--- hotkeys stored in TankBuffReminderDB.consHotkeys[entryKey] = "Shift+1" etc.
-
-local hotkeyDialog        -- the capture popup frame (created lazily)
-local hotkeyCapturing     -- slot whose hotkey we are currently setting
+local hotkeyDialog
+local hotkeyCapturing
 local MODIFIER_KEYS = { LSHIFT=true, RSHIFT=true, LCTRL=true, RCTRL=true,
                         LALT=true,   RALT=true,   LMETA=true, RMETA=true }
 
--- Find which entry key (if any) already owns a given hotkey string
--- Returns: bindingKey (for SetBindingClick), displayStr (for UI labels)
--- Returns nil, nil if key is a bare modifier tap.
+
 local function BuildHotkeyStrings(key)
     if MODIFIER_KEYS[key] then return nil, nil end
-    -- WoW binding format: SHIFT-CTRL-ALT-KEY (all caps, dash-separated)
+
     local bindParts = {}
     if IsShiftKeyDown()   then bindParts[#bindParts+1] = "SHIFT" end
     if IsControlKeyDown() then bindParts[#bindParts+1] = "CTRL"  end
     if IsAltKeyDown()     then bindParts[#bindParts+1] = "ALT"   end
-    -- Single letters must be upper-case for WoW bindings
-    local bindKey = (#key == 1) and key:upper() or key:upper()
+
+    local bindKey = key:upper()
     bindParts[#bindParts+1] = bindKey
     local bindingKey = table.concat(bindParts, "-")
 
-    -- Human-readable display string e.g. "Shift+G"
     local dispParts = {}
     if IsShiftKeyDown()   then dispParts[#dispParts+1] = "Shift" end
     if IsControlKeyDown() then dispParts[#dispParts+1] = "Ctrl"  end
@@ -78,7 +79,6 @@ local function BuildHotkeyStrings(key)
     return bindingKey, displayStr
 end
 
--- Legacy shim used for the live modifier preview label (no key yet, just prefix)
 local function GetModifierPreviewStr()
     local parts = {}
     if IsShiftKeyDown()   then parts[#parts+1] = "Shift" end
@@ -87,7 +87,6 @@ local function GetModifierPreviewStr()
     return #parts > 0 and (table.concat(parts, "+") .. "+") or ""
 end
 
--- Find which entry key (if any) already owns a given binding key string
 local function FindExistingOwner(bindingKey)
     local db = TankBuffReminderDB
     if not db or not db.consHotkeys then return nil end
@@ -97,7 +96,6 @@ local function FindExistingOwner(bindingKey)
     return nil
 end
 
--- Return the display name for an entry key by searching cfg.consumables
 local function EntryNameForKey(entryKey)
     if not entryKey or not cfg or not cfg.consumables then return entryKey end
     for _, e in ipairs(cfg.consumables) do
@@ -106,7 +104,6 @@ local function EntryNameForKey(entryKey)
     return entryKey
 end
 
--- Apply (or remove) a SetBindingClick binding for one slot button.
 local function ApplyHotkeyBinding(btn, entryKey, saveBind)
     if InCombatLockdown() then return end
     local db = TankBuffReminderDB
@@ -127,7 +124,6 @@ local function ApplyHotkeyBinding(btn, entryKey, saveBind)
     end
 end
 
--- Re-apply all hotkey bindings (called after rebuild) — one SaveBindings at the end
 local function ReapplyAllHotkeys()
     if InCombatLockdown() then return end
     local db = TankBuffReminderDB
@@ -145,13 +141,11 @@ local function ReapplyAllHotkeys()
     end
 end
 
--- Update the small hotkey label shown on a button
 local function RefreshHotkeyLabel(btn, entryKey)
     if not btn.hotkeyText then return end
     local db = TankBuffReminderDB
     local hk = db and db.consHotkeys and db.consHotkeys[entryKey]
-    if hk and hk.display then
-        -- Cache the abbreviated form on the button so gsub only runs on change
+    if hk and hk.display then        
         if btn._hotkeyAbbr ~= hk.display then
             btn._hotkeyAbbr = hk.display
             btn._hotkeyAbbrShort = hk.display:gsub("Shift%+","S+"):gsub("Ctrl%+","C+"):gsub("Alt%+","A+")
@@ -166,8 +160,6 @@ local function RefreshHotkeyLabel(btn, entryKey)
     end
 end
 
--- Finalise setting a hotkey after the player confirms the capture
--- bindingKey = "SHIFT-G", displayStr = "Shift+G"
 local function CommitHotkey(entryKey, bindingKey, displayStr)
     if not entryKey or not bindingKey then return end
     local db = TankBuffReminderDB
@@ -176,14 +168,13 @@ local function CommitHotkey(entryKey, bindingKey, displayStr)
     db.consHotkeys[entryKey] = { bind = bindingKey, display = displayStr }
     for _, slot in ipairs(slots) do
         if slot.entry and slot.entry.key == entryKey then
-            ApplyHotkeyBinding(slot.btn, entryKey, true)  -- save=true: single user action
+            ApplyHotkeyBinding(slot.btn, entryKey, true)  
             RefreshHotkeyLabel(slot.btn, entryKey)
             break
         end
     end
 end
 
--- Clear a hotkey for a slot
 local function ClearHotkey(entryKey)
     if not entryKey then return end
     local db = TankBuffReminderDB
@@ -191,14 +182,14 @@ local function ClearHotkey(entryKey)
     db.consHotkeys[entryKey] = nil
     for _, slot in ipairs(slots) do
         if slot.entry and slot.entry.key == entryKey then
-            ApplyHotkeyBinding(slot.btn, entryKey, true)  -- save=true: single user action
+            ApplyHotkeyBinding(slot.btn, entryKey, true)  
             RefreshHotkeyLabel(slot.btn, entryKey)
             break
         end
     end
 end
 
--- ── Hotkey Capture Dialog ────────────────────────────────────────────────────
+-- Hotkey Capture Dialog
 local function GetOrCreateHotkeyDialog()
     if hotkeyDialog then return hotkeyDialog end
 
@@ -218,7 +209,6 @@ local function GetOrCreateHotkeyDialog()
         insets = { left = 11, right = 12, top = 12, bottom = 11 }
     })
 
-    -- Title bar drag support
     f:SetScript("OnMouseDown", function(self, btn)
         if btn == "LeftButton" then self:StartMoving() end
     end)
@@ -226,20 +216,19 @@ local function GetOrCreateHotkeyDialog()
 
     f.title = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     f.title:SetPoint("TOP", f, "TOP", 0, -16)
-    f.title:SetText("Set Hotkey")
+    f.title:SetText(L["Set Hotkey"])
 
     f.label = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     f.label:SetPoint("TOP", f.title, "BOTTOM", 0, -10)
     f.label:SetWidth(260)
     f.label:SetJustifyH("CENTER")
-    f.label:SetText("Press any key combination…")
+    f.label:SetText(L["HOTKEY_PROMPT"])
 
     f.keyDisplay = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
     f.keyDisplay:SetPoint("TOP", f.label, "BOTTOM", 0, -8)
     f.keyDisplay:SetText("")
     f.keyDisplay:SetTextColor(1, 0.82, 0)
 
-    -- KeyDown capture frame (invisible, keyboard-focused)
     local captureFrame = CreateFrame("Frame", nil, f)
     captureFrame:SetAllPoints()
     captureFrame:EnableKeyboard(true)
@@ -250,31 +239,27 @@ local function GetOrCreateHotkeyDialog()
 		if key == "ESCAPE" then
 			f:Hide()
 			return
-		elseif key == "BACKSPACE" then -- NEW: Implementation of the clear logic
+		elseif key == "BACKSPACE" then
 			ClearHotkey(hotkeyCapturing)
 			f:Hide()
 			return
 		end
         local bindingKey, displayStr = BuildHotkeyStrings(key)
         if not bindingKey then
-            -- They only pressed a modifier; show live preview
             f.keyDisplay:SetText(GetModifierPreviewStr() .. "…")
             return
         end
 
-        -- Always show what they pressed
         f.keyDisplay:SetText(displayStr)
 
-        -- 1) Check our own addon's slots first
         local addonOwner = FindExistingOwner(bindingKey)
         if addonOwner and addonOwner ~= hotkeyCapturing then
             if f._pendingBind == bindingKey and f._pendingOwner == addonOwner then
-                -- Second press on same key = confirmed override of our own slot
                 ClearHotkey(f._pendingOwner)
                 CommitHotkey(hotkeyCapturing, bindingKey, displayStr)
                 f:Hide()
             else
-                f.label:SetText("|cffff6060Already bound to:\n" .. EntryNameForKey(addonOwner) .. "|r\nPress again to override, Esc to cancel.")
+                f.label:SetText(string.format(L["HOTKEY_CONFLICT_ADDON"], EntryNameForKey(addonOwner)))
                 f._pendingBind    = bindingKey
                 f._pendingDisplay = displayStr
                 f._pendingOwner   = addonOwner
@@ -283,18 +268,14 @@ local function GetOrCreateHotkeyDialog()
             return
         end
 
-        -- 2) Check WoW's own keybind system (action bars, spells, macros, etc.)
-        local wowAction = GetBindingAction(bindingKey, true)  -- true = check all binding sets
-        -- GetBindingAction returns "" when nothing is bound
+        local wowAction = GetBindingAction(bindingKey, true)
         if wowAction and wowAction ~= "" then
-            -- Try to get a friendlier name for it
             local friendlyName = _G["BINDING_NAME_" .. wowAction] or wowAction
             if f._pendingBind == bindingKey and f._pendingIsWoW then
-                -- Second press = user accepts the conflict, set anyway
                 CommitHotkey(hotkeyCapturing, bindingKey, displayStr)
                 f:Hide()
             else
-                f.label:SetText("|cffff8800Already used by:\n|cffffffff" .. friendlyName .. "|r\n|cffff8800Press again to use anyway, Esc to cancel.|r")
+                f.label:SetText(string.format(L["HOTKEY_CONFLICT_WOW"], friendlyName))
                 f._pendingBind    = bindingKey
                 f._pendingDisplay = displayStr
                 f._pendingOwner   = nil
@@ -303,21 +284,19 @@ local function GetOrCreateHotkeyDialog()
             return
         end
 
-        -- 3) No conflict at all – set immediately
         f._pendingBind  = nil
         f._pendingIsWoW = false
         CommitHotkey(hotkeyCapturing, bindingKey, displayStr)
         f:Hide()
     end)
 
-    -- Reset pending state whenever the dialog shows
     f:SetScript("OnShow", function(self)
         self._pendingBind    = nil
         self._pendingDisplay = nil
         self._pendingOwner   = nil
         self._pendingIsWoW   = false
         self.keyDisplay:SetText("")
-        self.label:SetText("Press any key combination…\n|cff888888Esc to cancel  •  Backspace clears|r")
+        self.label:SetText(L["HOTKEY_PROMPT"])
         self.captureFrame:EnableKeyboard(true)
     end)
     f:SetScript("OnHide", function(self)
@@ -325,11 +304,10 @@ local function GetOrCreateHotkeyDialog()
         hotkeyCapturing = nil
     end)
 
-    -- Cancel button
     local cancelBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     cancelBtn:SetSize(80, 22)
     cancelBtn:SetPoint("BOTTOM", f, "BOTTOM", 0, 14)
-    cancelBtn:SetText("Cancel")
+    cancelBtn:SetText(L["Cancel"])
     cancelBtn:SetScript("OnClick", function() f:Hide() end)
 
     f:Hide()
@@ -337,16 +315,15 @@ local function GetOrCreateHotkeyDialog()
     return f
 end
 
--- Open the dialog for a given slot entry key
 local function OpenHotkeyDialog(entryKey)
     if not entryKey then return end
     if InCombatLockdown() then
-        UIErrorsFrame:AddMessage("|cffff6060Cannot set hotkeys in combat.|r")
+        UIErrorsFrame:AddMessage("|cffff6060" .. L["Cannot set hotkeys in combat."] .. "|r")
         return
     end
     hotkeyCapturing = entryKey
     local dlg = GetOrCreateHotkeyDialog()
-    dlg.title:SetText("Set Hotkey – " .. EntryNameForKey(entryKey))
+    dlg.title:SetText(L["Set Hotkey"] .. " – " .. EntryNameForKey(entryKey))
     dlg:Show()
 end
 
@@ -386,7 +363,6 @@ anchor:SetClampedToScreen(true)
 anchor:SetPoint("CENTER", UIParent, "CENTER", 0, -220)
 anchor:SetFrameStrata("MEDIUM")
 
--- IMPORTANT: We enable mouse only for dragging, but let movement pass through
 anchor:EnableMouse(true)
 anchor:SetMouseMotionEnabled(true)
 
@@ -401,7 +377,6 @@ anchor:SetBackdrop({
 })
 anchor:SetBackdropBorderColor(1, 1, 1, 0.4)
 
--- Movement (Shift+Drag)
 anchor:SetScript("OnMouseDown", function(self, button)
     if not InCombatLockdown() and button == "LeftButton" and IsShiftKeyDown() then
         self:StartMoving()
@@ -421,7 +396,6 @@ anchor:SetScript("OnMouseUp", function(self)
     end
 end)
 
--- STRONGER FIX for movement blocking
 anchor:SetPropagateMouseMotion(true)
 anchor:SetPropagateMouseClicks(true)
 
@@ -439,9 +413,10 @@ local function BestItemID(itemIDs)
 end
 
 local function UpdateItemCounts()
-    for _, slot in ipairs(slots) do
-        local entry = slot.entry
-        if entry and entry.key then
+    if not cfg or not cfg.consumables then return end
+    
+    for _, entry in ipairs(cfg.consumables) do
+        if entry.key then
             local total = 0
             for i = 1, #entry.itemIDs do
                 total = total + GetItemCount(entry.itemIDs[i], false)
@@ -486,7 +461,7 @@ local function ApplyButtonAttributes(slot, entry)
 end
 
 -------------------------------------------------------------------------------
--- TBR_ConsBar_UpdateVisuals (Restored & Fixed)
+-- TBR_ConsBar_UpdateVisuals
 -------------------------------------------------------------------------------
 function TBR_ConsBar_UpdateVisuals()
     local globalDB = TankBuffReminderDB
@@ -522,6 +497,11 @@ function TBR_ConsBar_UpdateVisuals()
         if btn.cd then
             btn.cd:SetSwipeColor(0, 0, 0, globalDB.consSweepAlpha or 0.6)
         end
+
+        -- Updates the count text alpha when visual settings/sliders change
+		if btn.countText then            
+            slot._forceCountAlphaRefresh = true
+        end
     end
 end
 
@@ -539,46 +519,48 @@ local function MakeSlot(index, entry, xOffset, yOffset)
         btn = CreateFrame("Button", "TBR_CBSlot" .. (#slots + #framePool + 1), anchor, "SecureActionButtonTemplate")
         btn:RegisterForClicks("AnyUp", "AnyDown")
 
-        -- PreClick fires before the secure action. Ctrl+Click: nullify the type
-        -- so the macro doesn't fire, then restore it in PostClick.
-        btn:SetScript("PreClick", function(self, button, down)
-            if button == "LeftButton" and IsControlKeyDown() then
-                self._savedType  = self:GetAttribute("type")
-                self._savedMacro = self:GetAttribute("macrotext")
-                self:SetAttribute("type", nil)
-                self:SetAttribute("macrotext", nil)
-                self._ctrlBlocked = true
-            else
-                self._ctrlBlocked = false
-            end
-        end)
-        btn:SetScript("PostClick", function(self, button, down)
-            if self._ctrlBlocked then
-                -- Restore attributes and open the dialog
-                self:SetAttribute("type", self._savedType)
-                self:SetAttribute("macrotext", self._savedMacro)
-                self._ctrlBlocked = false
-                local slotEntry = self.entry
-                if slotEntry then
-                    OpenHotkeyDialog(slotEntry.key)
-                end
-            end
-        end)
+		btn:SetScript("PreClick", function(self, button, down)
+			self._didDisableUnshift = false
 
-        -- OnMouseDown/Up: only used to pass Shift+drag through to the anchor
-        btn:SetScript("OnMouseDown", function(self, button)
-            if IsShiftKeyDown() then
-                local parent = self:GetParent()
-                if parent:GetScript("OnMouseDown") then parent:GetScript("OnMouseDown")(parent, button) end
-            end
-        end)
-        btn:SetScript("OnMouseUp", function(self, button)
-            local parent = self:GetParent()
-            if parent:GetScript("OnMouseUp") then parent:GetScript("OnMouseUp")(parent, button) end
-        end)
+			if button == "LeftButton" and self.druidInstant and not IsControlKeyDown() then
+				local blocked = false
 
+				local locCount = C_LossOfControl.GetActiveLossOfControlDataCount()
+				for i = locCount, 1, -1 do
+					local locData = C_LossOfControl.GetActiveLossOfControlData(i)
+					if locData and LOC_BLOCK[locData.locType] then
+						blocked = true
+						break
+					end
+				end
+
+				if not blocked then
+					local _, gcdDur = GetSpellCooldown(768)
+					if gcdDur and gcdDur > 0 then blocked = true end
+				end
+
+				if blocked then
+					SetCVar("autoUnshift", 0)
+					self._didDisableUnshift = true
+				end
+			end
+		end)
+
+		btn:SetScript("PostClick", function(self, button, down)
+			if self._didDisableUnshift then
+				SetCVar("autoUnshift", 1)
+				self._didDisableUnshift = false
+			elseif button == "LeftButton" and IsControlKeyDown() then
+				local slotEntry = self.entry
+				if slotEntry then
+					OpenHotkeyDialog(slotEntry.key)
+				end
+			end
+		end)
+
+        -- Clear out parent bubbling entirely from the secure templates to solve mouse leaks
         btn:SetPropagateMouseMotion(true)
-        btn:SetPropagateMouseClicks(true)
+        btn:SetPropagateMouseClicks(false)
 
         btn.icon = btn:CreateTexture(nil, "ARTWORK")
         btn.icon:SetAllPoints()
@@ -599,8 +581,6 @@ local function MakeSlot(index, entry, xOffset, yOffset)
 
         btn.countText = btn:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
         btn.countText:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 2, 2)
-
-        -- Hotkey label (top-left corner, like action bar hotkey text)
         btn.hotkeyText = btn:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
         btn.hotkeyText:SetPoint("TOPLEFT", btn, "TOPLEFT", 1, -1)
         btn.hotkeyText:SetTextColor(1, 1, 1)
@@ -613,6 +593,44 @@ local function MakeSlot(index, entry, xOffset, yOffset)
 
         btn.glow = GetOrCreateGlow(btn)
 
+        -- Shift-Drag Interceptor Frame (Completely masks out secure action executing on click)
+        local mask = CreateFrame("Frame", nil, btn)
+        mask:SetAllPoints()
+        mask:EnableMouse(true)
+        mask:Hide()
+        btn.dragMask = mask
+
+        mask:SetScript("OnMouseDown", function(self, button)
+            local p = self:GetParent():GetParent()
+            if p:GetScript("OnMouseDown") then p:GetScript("OnMouseDown")(p, button) end
+        end)
+        mask:SetScript("OnMouseUp", function(self, button)
+            local p = self:GetParent():GetParent()
+            if p:GetScript("OnMouseUp") then p:GetScript("OnMouseUp")(p, button) end
+        end)
+
+        local kf = CreateFrame("Frame", nil, btn)
+        kf:SetAllPoints()
+        kf:EnableKeyboard(true)
+        kf:SetPropagateKeyboardInput(true)
+        kf:SetScript("OnKeyDown", function(_, key)
+            if key == "BACKSPACE" then
+                local entry = btn.entry
+                if entry then
+                    ClearHotkey(entry.key)
+                    if GameTooltip:IsOwned(btn) then
+                        GameTooltip:ClearLines()
+                        GameTooltip:SetItemByID(btn.currentItemID)
+                        GameTooltip:AddLine(" ")
+                        GameTooltip:AddLine(L["|cff888888Ctrl+Click|r to set a hotkey"], 0.7, 0.7, 0.7, true)
+                        GameTooltip:Show()
+                    end
+                end
+            end
+        end)
+        kf:Hide()
+        btn._keyListener = kf
+
         btn:SetScript("OnEnter", function(self)
             if anchor.isMoving then return end
             local itemID = self.currentItemID
@@ -624,10 +642,10 @@ local function MakeSlot(index, entry, xOffset, yOffset)
             local slotEntry = self.entry
             if self.druidInstant then
                 GameTooltip:AddLine(" ")
-                GameTooltip:AddLine("|cff00ff00Bear-safe:|r re-enters Bear or Cat Form after use.", 1, 1, 1, true)
+                GameTooltip:AddLine(L["|cff00ff00Bear-safe:|r re-enters Bear or Cat Form after use."], 1, 1, 1, true)
             elseif slotEntry and slotEntry.druidWarn then
                 GameTooltip:AddLine(" ")
-                GameTooltip:AddLine("|cffff8800Warning:|r drops Bear Form.", 1, 0.6, 0, true)
+                GameTooltip:AddLine(L["|cffff8800Warning:|r drops Bear Form."], 1, 0.6, 0, true)
             end
 
             local totalCount = 0
@@ -636,50 +654,20 @@ local function MakeSlot(index, entry, xOffset, yOffset)
                     totalCount = totalCount + GetItemCount(id, false)
                 end
             end
-            GameTooltip:AddDoubleLine("Total in Bags:", totalCount, 1, 1, 1, 1, 1, 1)
+            GameTooltip:AddDoubleLine(L["Total in Bags:"], totalCount, 1, 1, 1, 1, 1, 1)
 
-            -- Hotkey hint lines
             local db = TankBuffReminderDB
             local hk = db and db.consHotkeys and slotEntry and db.consHotkeys[slotEntry.key]
             if hk and hk.display then
                 GameTooltip:AddLine(" ")
-                GameTooltip:AddDoubleLine("Hotkey:", hk.display, 0.6, 0.6, 0.6, 1, 0.82, 0)
-                GameTooltip:AddLine("|cff888888Backspace|r to clear  •  |cff888888Ctrl+Click|r to rebind", 0.7, 0.7, 0.7, true)
+                GameTooltip:AddDoubleLine(L["Hotkey:"], hk.display, 0.6, 0.6, 0.6, 1, 0.82, 0)
+                GameTooltip:AddLine(L["|cff888888Backspace|r to clear  •  |cff888888Ctrl+Click|r to rebind"], 0.7, 0.7, 0.7, true)
             else
                 GameTooltip:AddLine(" ")
-                GameTooltip:AddLine("|cff888888Ctrl+Click|r to set a hotkey", 0.7, 0.7, 0.7, true)
+                GameTooltip:AddLine(L["|cff888888Ctrl+Click|r to set a hotkey"], 0.7, 0.7, 0.7, true)
             end
 
             GameTooltip:Show()
-
-            -- Use a dedicated listener frame instead of enabling keyboard on the
-            -- button itself. EnableKeyboard(true) on a button steals focus and
-            -- blocks movement keys even with SetPropagateKeyboardInput(true).
-            if not self._keyListener then
-                local kf = CreateFrame("Frame", nil, self)
-                kf:SetAllPoints()
-                kf:EnableKeyboard(true)
-                -- Propagate everything EXCEPT Backspace so movement is never blocked.
-                kf:SetPropagateKeyboardInput(true)
-                kf:SetScript("OnKeyDown", function(_, key)
-                    if key == "BACKSPACE" then
-                        -- Swallow only this key; stop propagation for this one press.
-                        kf:SetPropagateKeyboardInput(false)
-                        local entry = self.entry
-                        if entry then
-                            ClearHotkey(entry.key)
-                            GameTooltip:ClearLines()
-                            GameTooltip:SetItemByID(self.currentItemID)
-                            GameTooltip:AddLine(" ")
-                            GameTooltip:AddLine("|cff888888Ctrl+Click|r to set a hotkey", 0.7, 0.7, 0.7, true)
-                            GameTooltip:Show()
-                        end
-                    else
-                        kf:SetPropagateKeyboardInput(true)
-                    end
-                end)
-                self._keyListener = kf
-            end
             self._keyListener:Show()
         end)
         btn:SetScript("OnLeave", function(self)
@@ -724,16 +712,17 @@ end
 -------------------------------------------------------------------------------
 -- Per-frame Visual Logic
 -------------------------------------------------------------------------------
--- Pre-allocated string cache for item counts — avoids tostring() allocation each tick
 local _countStrCache = {}
 do
     for i = 1, 300 do _countStrCache[i] = tostring(i) end
 end
+
 local function CountStr(n)
     return (n > 0) and (_countStrCache[n] or tostring(n)) or ""
 end
 
-local _lastInCombat = false  
+local _lastInCombat = false
+local _pendingBuffs = {}
 
 local function UpdateSlotVisuals()
     local pStart, pDur = SafeGetCD(POTION_SHARED_CD_ITEM)
@@ -742,55 +731,86 @@ local function UpdateSlotVisuals()
     local combatChanged = (inCombat ~= _lastInCombat)
     _lastInCombat = inCombat
 
+    -- Monitor Shift status globally on update loops to handle the drag mask overlay
+    local isShift = IsShiftKeyDown()
+
     for _, slot in ipairs(slots) do
         local entry = slot.entry
         local btn = slot.btn
 
-        -- Use the event-driven cache instead of the manual for-loop
-        local totalCount = itemCountCache[entry.key] or 0
+        -- Toggle drag interception layer dynamically depending on key status
+        if btn.dragMask then
+            if isShift and not inCombat then
+                btn.dragMask:Show()
+            else
+                btn.dragMask:Hide()
+            end
+        end
+
+        -- Update item count
+        local totalCount = itemCountCache[entry.key]
+        if totalCount == nil then
+            totalCount = 0
+            for i = 1, #entry.itemIDs do
+                totalCount = totalCount + GetItemCount(entry.itemIDs[i], false)
+            end
+            itemCountCache[entry.key] = totalCount
+        end
+
         local resID = BestItemID(entry.itemIDs)
 
         if resID ~= btn.currentItemID and not inCombat then
             ApplyButtonAttributes(slot, entry)
         end
 
-        -- Cooldown handling
-        local start, duration = SafeGetCD(resID)
-        if entry.isPotionType and potionCDActive and pDur > duration then
-            start, duration = pStart, pDur
+        -- === POTION SHARED CD + INDIVIDUAL CD HANDLING ===
+        if not slot._showingBuff then
+            local start, duration = SafeGetCD(resID)
+
+            if entry.isPotionType and potionCDActive then
+                if pDur > (duration or 0) then
+                    start, duration = pStart, pDur
+                end
+            end
+
+            if duration > 0 and duration < 1.4 then
+                duration = 0
+            end
+
+            if duration > 1.5 then
+                if slot._lastStart ~= start or slot._lastDuration ~= duration then
+                    slot.cd:SetCooldown(start, duration)
+                    slot._lastStart    = start
+                    slot._lastDuration = duration
+                end
+                if not slot._cdShown then
+                    slot.cd:Show()
+                    slot._cdShown = true
+                end
+                slot._cdZeroTicks = 0
+            else
+                slot._cdZeroTicks = (slot._cdZeroTicks or 0) + 1
+                if slot._cdZeroTicks >= 2 then
+                    if slot._cdShown or slot._lastDuration ~= 0 then
+                        slot._lastDuration = 0
+                        slot._lastStart    = 0
+                        slot._cdShown      = false
+                        slot.cd:Hide()
+                    end
+                end
+            end
         end
 
-        if duration > 1.5 then
-            if slot._lastStart ~= start or slot._lastDuration ~= duration then
-                slot.cd:SetCooldown(start, duration)
-                slot._lastStart    = start
-                slot._lastDuration = duration
-            end
-            slot.cd:Show()
-        elseif not slot._showingBuff then
-            -- Only hide if neither a buff sweep nor weapon enchant sweep is active
-            if slot._lastDuration ~= 0 then
-                slot._lastDuration = 0
-                slot._lastStart    = 0
-            end
-            slot.cd:Hide()
-        end
-
-        -- Update count text and desaturation only when count changes
         if _lastCounts[btn] ~= totalCount then
             slot.count:SetText(CountStr(totalCount))
-            
-            -- This handles the grey-out effect
-            btn.icon:SetDesaturated(totalCount == 0)
-            
             _lastCounts[btn] = totalCount
         end
 
-        -- Combat lock overlay
         if combatChanged then
             if inCombat then
                 slot.lock:SetAlpha(0.25)
                 slot.lock:Show()
+                if btn.dragMask then btn.dragMask:Hide() end
             else
                 slot.lock:Hide()
             end
@@ -806,7 +826,7 @@ anchor:SetScript("OnUpdate", function(self, elapsed)
     if pulseElapsed < PULSE_INTERVAL then return end
 
     local db = TankBuffReminderDB
-    local cdb = TankBuffReminderCharDB -- character-specific DB
+    local cdb = TankBuffReminderCharDB
     if not db then return end
 
     local speed = db.consPulseSpeed or 3
@@ -825,6 +845,14 @@ anchor:SetScript("OnUpdate", function(self, elapsed)
         anchor:SetBackdropBorderColor(1, 1, 1, visibilityAlpha * frameAlphaSetting)
     end
 
+    -- Force fallback execution check if user released shift mid-drag away from frame bounds
+    if self.isMoving and not IsShiftKeyDown() then
+        self:StopMovingOrSizing()
+        self.isMoving = false
+        local p, _, rp, x, y = self:GetPoint()
+        db.consBar_pos = { p = p, rp = rp, x = x, y = y }
+    end
+
     if hidden ~= anchor._lastHidden then
         anchor._lastHidden = hidden
         for _, slot in ipairs(slots) do
@@ -839,51 +867,34 @@ anchor:SetScript("OnUpdate", function(self, elapsed)
         end
     end
 
-    -- Update visuals (icons/CDs)
-    UpdateSlotVisuals()
-
-    -- Glow / Needs Attention Logic
+    -- ── Step 1: Refresh the buff cache ──
     local now = GetTime()
     local doFullScan = (now - lastBuffScan) > 1.0
-    
-    -- STEP 1: Buff scan — stored by both spell ID and name so lookups work
-    -- even if a buffSpellID in Config.lua turns out to be wrong.
+
     if doFullScan then
         lastBuffScan = now
-        table.wipe(_currentBuffs)
+        table.wipe(_pendingBuffs)
         _buffEntryCount = 0
         for i = 1, 40 do
             local name, _, _, _, dur, exp, _, _, _, sid = UnitBuff("player", i)
             if not name then break end
-            -- Reuse a pool entry instead of allocating a new table
             _buffEntryCount = _buffEntryCount + 1
             local entry = _buffEntryPool[_buffEntryCount]
             entry.exp = exp or 0
             entry.dur = dur or 0
-            if sid then _currentBuffs[sid] = entry end
-            _currentBuffs[name] = entry
+            if sid then _pendingBuffs[sid] = entry end
+            _pendingBuffs[name] = entry
             if name == WELL_FED_NAME then
-                _currentBuffs["FOOD"] = entry
+                _pendingBuffs["FOOD"] = entry
             end
         end
+        _currentBuffs, _pendingBuffs = _pendingBuffs, _currentBuffs
     end
 
-    local maxGlowAlpha = db.consGlowAlpha or 1.0
-    local alphaWave = (0.7 + math_sin(pulseTimer) * 0.3) * maxGlowAlpha
-    local userIconAlpha = db.consAlpha or 1.0
-    local gc = db.consGlowColor or { r = _DEFAULT_R, g = _DEFAULT_G, b = _DEFAULT_B }
-
+    -- ── Step 2: Update slot._showingBuff from fresh cache ──
     for _, slot in ipairs(slots) do
         local entry = slot.entry
-        local btn = slot.btn
-        
-        local totalCount = itemCountCache[entry.key] or 0
-        local hasItem = totalCount > 0
-        
-        -- STEP 2: Find active buff for this slot.
-        -- buffSpellID can be a single number or a table of numbers.
-        -- Falls back to looking up the item's own name in the buff list,
-        -- which covers cases where the spell ID in Config is wrong.
+
         local activeBuff = nil
         if entry.buffSpellID then
             if type(entry.buffSpellID) == "table" then
@@ -894,7 +905,6 @@ anchor:SetScript("OnUpdate", function(self, elapsed)
                 activeBuff = _currentBuffs[entry.buffSpellID]
             end
         end
-        -- Name-based fallback: look up the buff by the item's label
         if not activeBuff and entry.buffSpellID then
             local spellName = GetSpellInfo(type(entry.buffSpellID) == "table" and entry.buffSpellID[1] or entry.buffSpellID)
             if spellName then activeBuff = _currentBuffs[spellName] end
@@ -902,6 +912,26 @@ anchor:SetScript("OnUpdate", function(self, elapsed)
         if not activeBuff and entry.category == "Food" then
             activeBuff = _currentBuffs["FOOD"]
         end
+        slot._activeBuff = activeBuff
+    end
+
+    -- ── Step 3: Item cooldown + count updates ──
+    UpdateSlotVisuals()
+
+    -- ── Step 4: Visual pass ──
+    local maxGlowAlpha = db.consGlowAlpha or 1.0
+    local alphaWave = (0.7 + math_sin(pulseTimer) * 0.3) * maxGlowAlpha
+    local userIconAlpha = db.consAlpha or 1.0
+    local gc = db.consGlowColor or { r = _DEFAULT_R, g = _DEFAULT_G, b = _DEFAULT_B }
+
+    for _, slot in ipairs(slots) do
+        local entry = slot.entry
+        local btn = slot.btn
+
+        local totalCount = itemCountCache[entry.key] or 0
+        local hasItem = totalCount > 0
+
+        local activeBuff = slot._activeBuff
 
         if activeBuff and activeBuff.exp > 0 then
             local buffStart = activeBuff.exp - activeBuff.dur
@@ -909,33 +939,41 @@ anchor:SetScript("OnUpdate", function(self, elapsed)
                 slot.cd:SetCooldown(buffStart, activeBuff.dur)
                 slot.cd:SetSwipeColor(0, 0, 0, db.consSweepAlpha or 0.7)
                 slot.cd:Show()
+                slot._cdShown   = true
                 slot._buffStart = buffStart
                 slot._buffDur   = activeBuff.dur
             end
             slot._showingBuff = true
         elseif entry.category == "Weapon" then
-            -- Weapon buffs aren't player auras — use GetWeaponEnchantInfo instead
             local hasMH, mhExpMs = GetWeaponEnchantInfo()
             if hasMH and mhExpMs and mhExpMs > 0 then
-                local mhDur = mhExpMs / 1000
-                local mhStart = now + mhDur - mhDur  -- SetCooldown needs absolute start
-                -- GetWeaponEnchantInfo gives remaining time, not start/end
-                -- so derive: start = now, duration = remaining
-                local buffStart = now
-                if slot._buffStart ~= buffStart or math.abs((slot._buffDur or 0) - mhDur) > 1 then
-                    slot.cd:SetCooldown(buffStart, mhDur)
+                local mhRemaining = mhExpMs / 1000
+                local prevRemaining = slot._buffDur or 0
+                if not slot._buffStart or mhRemaining > prevRemaining + 2 then
+                    slot.cd:SetCooldown(now, mhRemaining)
                     slot.cd:SetSwipeColor(0, 0, 0, db.consSweepAlpha or 0.7)
                     slot.cd:Show()
-                    slot._buffStart = buffStart
-                    slot._buffDur   = mhDur
+                    slot._cdShown   = true
+                    slot._buffStart = now
+                    slot._buffDur   = mhRemaining
+                else
+                    slot._buffDur = mhRemaining
                 end
                 slot._showingBuff = true
             else
+                if slot._showingBuff then
+                    slot.cd:Hide()
+                    slot._cdShown = false
+                end
                 slot._showingBuff = false
                 slot._buffStart   = nil
                 slot._buffDur     = nil
             end
         else
+            if slot._showingBuff then
+                slot.cd:Hide()
+                slot._cdShown = false
+            end
             slot._showingBuff = false
             slot._buffStart   = nil
             slot._buffDur     = nil
@@ -946,56 +984,78 @@ anchor:SetScript("OnUpdate", function(self, elapsed)
 
         if isOffCD then
             if entry.category == "Weapon" then
-                -- Only nag if we have the item to actually apply the buff
                 if hasItem then
                     local hasMH, mhExpMs = GetWeaponEnchantInfo()
                     needsAttention = not hasMH or (mhExpMs and (mhExpMs / 1000) < 120)
                 end
             elseif not slot._showingBuff and hasItem then
-                -- Buff missing and we have the item — nag
                 needsAttention = true
             end
         end
 
-		-- === MAIN VISUAL LOGIC ===
-        if not hasItem then
-            -- Priority 1: Out of Items - ALWAYS Grey/Desaturated
-            btn.icon:SetDesaturated(true)
-            btn.icon:SetAlpha(userIconAlpha * visibilityAlpha)
-            if btn.glow then btn.glow:Hide() end
-            
-        elseif not isOffCD then
-            -- Priority 2: On Cooldown (Real Item CD, not buff duration)
-            -- We only desaturate here if it's a real cooldown (like a potion)
-            if activeBuff then
-                -- It's showing a buff duration, keep it colorful
-                btn.icon:SetDesaturated(false)
-                btn.icon:SetAlpha(userIconAlpha * visibilityAlpha)
-            else
-                -- It's a real item cooldown, make it grey
-                btn.icon:SetDesaturated(true)
-                btn.icon:SetAlpha(0.55 * visibilityAlpha)
-            end
-            if btn.glow then btn.glow:Hide() end
+        local wantDesat, wantAlpha, wantGlow, wantGlowAlpha
+        local onItemCD = not isOffCD and not slot._showingBuff
 
+        if not hasItem then
+            wantDesat = true
+            wantAlpha = userIconAlpha * visibilityAlpha
+            wantGlow  = false
+        elseif onItemCD then
+            wantDesat = true
+            wantAlpha = 0.55 * visibilityAlpha
+            wantGlow  = false
+        elseif not isOffCD and slot._showingBuff then
+            wantDesat = false
+            wantAlpha = userIconAlpha * visibilityAlpha
+            wantGlow  = false
         elseif needsAttention then
-            -- Priority 3: Ready and needs attention (Missing/Expiring)
-            btn.icon:SetDesaturated(false)
-            btn.icon:SetAlpha(1.0 * visibilityAlpha)
-            if btn.glow and maxGlowAlpha > 0 then
-                btn.glow:SetVertexColor(gc.r, gc.g, gc.b)
-                btn.glow:SetAlpha(alphaWave * visibilityAlpha)
-                btn.glow:Show()
-            end
+            wantDesat     = false
+            wantAlpha     = 1.0 * visibilityAlpha
+            wantGlow      = (maxGlowAlpha > 0)
+            wantGlowAlpha = alphaWave * visibilityAlpha
         else
-            -- Priority 4: Buffed and has items
-            btn.icon:SetDesaturated(false)
-            btn.icon:SetAlpha(userIconAlpha * visibilityAlpha)
-            if btn.glow then btn.glow:Hide() end
+            wantDesat = false
+            wantAlpha = userIconAlpha * visibilityAlpha
+            wantGlow  = false
+        end
+
+        if btn.icon:IsDesaturated() ~= wantDesat then
+            btn.icon:SetDesaturated(wantDesat)
+        end
+        if slot._lastIconAlpha ~= wantAlpha then
+            btn.icon:SetAlpha(wantAlpha)
+            slot._lastIconAlpha = wantAlpha
+        end
+
+        if btn.glow then
+            if wantGlow then
+                if slot._lastGlowAlpha ~= wantGlowAlpha then
+                    btn.glow:SetVertexColor(gc.r, gc.g, gc.b)
+                    btn.glow:SetAlpha(wantGlowAlpha)
+                    slot._lastGlowAlpha = wantGlowAlpha
+                end
+                if not btn.glow:IsShown() then btn.glow:Show() end
+            else
+                if btn.glow:IsShown() then
+                    btn.glow:Hide()
+                    slot._lastGlowAlpha = nil
+                end
+            end
         end
 
         if btn.countText then
-            btn.countText:SetAlpha(visibilityAlpha)
+            local countAlpha
+            if isOffCD and not slot._showingBuff then
+                countAlpha = 1.0 * visibilityAlpha
+            else
+                countAlpha = (userIconAlpha or 1.0) * visibilityAlpha
+            end
+
+            if slot._lastCountAlpha ~= countAlpha or slot._forceCountAlphaRefresh then
+                btn.countText:SetAlpha(countAlpha)
+                slot._lastCountAlpha = countAlpha
+                slot._forceCountAlphaRefresh = nil
+            end
         end
     end
 end)
@@ -1010,7 +1070,6 @@ function TBR_ConsBar_Rebuild()
     local db = TankBuffReminderCharDB
     local globalDB = TankBuffReminderDB
 
-    -- Cleanup old slots
     for _, slot in ipairs(slots) do
         if slot.btn then
             slot.btn:Hide()
@@ -1020,13 +1079,13 @@ function TBR_ConsBar_Rebuild()
             end
             slot.btn:SetAttribute("type", nil)
             slot.btn:SetAttribute("macrotext", nil)
+            if slot.btn.dragMask then slot.btn.dragMask:Hide() end
             table.insert(framePool, slot.btn)
         end
         table.wipe(slot)
         table.insert(slotPool, slot)
     end
     table.wipe(slots)
-    -- Clear count cache and buff scan so stale frame references don't accumulate
     table.wipe(_lastCounts)
     table.wipe(_currentBuffs)
     _buffEntryCount = 0
@@ -1036,12 +1095,24 @@ function TBR_ConsBar_Rebuild()
         return
     end
 
+    local hideEmpty = (globalDB.consHideEmpty == true)
+
     local enabled = {}
     for _, entry in ipairs(cfg.consumables) do
         local isEnabled = db["cons_" .. entry.key]
         if isEnabled == nil then isEnabled = entry.defaultOn end
         if isEnabled then
-            table.insert(enabled, entry)
+            if hideEmpty then
+                local total = 0
+                for _, id in ipairs(entry.itemIDs) do
+                    total = total + GetItemCount(id, false)
+                end
+                if total > 0 then
+                    table.insert(enabled, entry)
+                end
+            else
+                table.insert(enabled, entry)
+            end
         end
     end
 
@@ -1075,7 +1146,7 @@ function TBR_ConsBar_Rebuild()
         end
     end
 
-    TBR_ConsBar_UpdateVisuals()   -- Fixed call
+    TBR_ConsBar_UpdateVisuals()
     ReapplyAllHotkeys()
     anchor:Show()
 
@@ -1096,31 +1167,77 @@ eF:RegisterEvent("PLAYER_LOGIN")
 eF:RegisterEvent("BAG_UPDATE_DELAYED")
 eF:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 eF:RegisterEvent("PLAYER_REGEN_ENABLED")
+eF:RegisterEvent("UNIT_AURA")
 
-eF:SetScript("OnEvent", function(self, event)
+eF:SetScript("OnEvent", function(self, event, arg1)
     if event == "PLAYER_LOGIN" then
         C_Timer.After(0.5, function()
-            UpdateItemCounts() -- Initialize the numbers
+            UpdateItemCounts()
             TBR_ConsBar_Rebuild()
         end)
-    elseif event == "BAG_UPDATE_DELAYED" or event == "PLAYER_REGEN_ENABLED" then
+
+    elseif event == "BAG_UPDATE_DELAYED" then
         if InCombatLockdown() then
             bagUpdatePending = true
             return
         end
 
-        if event == "PLAYER_REGEN_ENABLED" and bagUpdatePending then
-            UpdateItemCounts() -- Update numbers after combat
-            TBR_ConsBar_Rebuild()
-            bagUpdatePending = false
-        elseif event == "BAG_UPDATE_DELAYED" and not bagUpdatePending then
-            bagUpdatePending = true
-            C_Timer.After(0.5, function()
-                UpdateItemCounts() -- Update numbers after the delay
+        C_Timer.After(0.15, function()   
+            UpdateItemCounts()
+
+            local globalDB = TankBuffReminderDB
+            if globalDB and globalDB.consHideEmpty then
                 TBR_ConsBar_Rebuild()
+            else
+                lastBuffScan = 0
+                
+				for _, slot in ipairs(slots) do
+					if slot.btn and slot.cd then
+						local totalCount = itemCountCache[slot.entry.key] or 0
+						if totalCount > 0 then
+							if slot._cdShown then
+								slot.cd:Hide()
+								slot._cdShown = false
+							end
+							slot._lastDuration = 0
+							slot._lastStart = 0
+							slot._cdZeroTicks = 3
+						end
+					end
+				end
+            end
+        end)
+
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        C_Timer.After(0.1, function()
+            UpdateItemCounts()
+            
+            if bagUpdatePending then
                 bagUpdatePending = false
-            end)
+                TBR_ConsBar_Rebuild()
+            else
+                lastBuffScan = 0
+                
+                for _, slot in ipairs(slots) do
+                    if slot.btn and slot.cd then
+                        local totalCount = itemCountCache[slot.entry.key] or 0
+                        if totalCount > 0 and slot._cdShown then
+                            slot.cd:Hide()
+                            slot._cdShown = false
+                            slot._lastDuration = 0
+                            slot._lastStart = 0
+                            slot._cdZeroTicks = 3
+                        end
+                    end
+                end
+            end
+        end)
+
+    elseif event == "UNIT_AURA" then
+        if arg1 == "player" then
+            lastBuffScan = 0
         end
+
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
         if not InCombatLockdown() then
             UpdateItemCounts()

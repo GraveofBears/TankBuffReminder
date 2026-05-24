@@ -49,6 +49,10 @@ L["Timer Y Offset"]            = true
 L["Timer Alpha"]               = true
 L["Text Color"]                = true
 L["Hide until Mouseover"]      = true
+L["Hide Empty Buttons"]        = true
+L["Bar Orientation"]           = true
+L["Horizontal"]                = true
+L["Vertical"]                  = true
 
 -- Alerts tab
 L["Buff Alert Sound"]                        = true
@@ -61,20 +65,42 @@ L["Taunt Alert System"]                      = true
 L["Enable Taunt Failure Detection"]          = true
 L["Self Warning (chat message)"]             = true
 L["Announce in /Say"]                        = true
+L["Announce in /Yell"]                       = true
 L["Announce in /Party"]                      = true
 L["Announce in /Raid"]                       = true
 L["Play sound on taunt failure"]             = true
 L["Taunt Failure Sound:"]                    = true
 L["Unknown Alert"]                           = true
 
+-- Low Threat Alert System
+L["Low Threat Alert System"]      = true
+L["Enable Low Threat Alert"]      = true
+L["Track Spell Misses"]           = true
+L["Track Spell Resists"]          = true
+L["Track CC / Stuns"]             = true
+L["Alert Window (sec)"]           = true
+L["Play sound on threat alert"]   = true
+L["Threat Alert Sound:"]          = true
+L["THREAT_ALERT_PREFIX"] =
+    "Low threat detected — DPS hold: "
+L["THREAT_MISS"]   = "Miss"
+L["THREAT_RESIST"] = "Resist"
+L["THREAT_IMMUNE"] = "Immune"
+L["THREAT_DODGE"]  = "Dodge"
+L["THREAT_PARRY"]  = "Parry"
+L["THREAT_BLOCK"]  = "Block"
+
 -- Automation tab
 L["Combat Automation"]                          = true
 L["Tools"]                                      = true
 L["Auto-set Tank Role (5-man groups)"]          = true
+L["Auto-set Tank Role (Raids)"]                 = true
 L["Auto-Repair at Merchant"]                    = true
 L["Show Defense Cap button on Character Sheet"] = true
 L["Open Defense Cap Chart"]                     = true
 L["Chart Frame Color"]                          = true
+L["Chart Font Size"]                            = true
+L["Chart Scale"]                                = true
 L["Reset All Settings"]                         = true
 L["Caution: This wipes all settings!"]          = true
 
@@ -82,6 +108,9 @@ L["Caution: This wipes all settings!"]          = true
 L["Auto-remove"] = true
 L["Show icon"]   = true
 L["Off"]         = true
+
+L["Removal UI Scale"]                           = true
+L["Unlock Removal Buttons (drag to move)"]      = true
 
 -- Automation tab note (colour codes kept intentionally — translators may leave as-is)
 L["AUTOMATION_NOTE"] =
@@ -117,6 +146,13 @@ L["Defense Cap Reference"]                 = true
 L["Click to view crit-immunity chart."]    = true
 L["Shift+drag to move."]                   = true
 
+-- Defense chart boss level dropdown
+L["Target Boss Level:"]              = true
+L["Level 70 (Heroic — Easy)"]        = true
+L["Level 71 (Heroic — Mid)"]         = true
+L["Level 72 (Heroic — Hard)"]        = true
+L["Level 73 (Raid Boss — Default)"]  = true
+
 -- Defense chart column headers (DefenseCap.lua)
 L["Defense Skill"]  = true
 L["Rating Needed"]  = true
@@ -126,6 +162,30 @@ L["Resil Needed"]   = true
 L["Druid |cff999999(Survival of the Fittest)|r"] = true
 L["Warrior"]                                       = true
 L["Paladin"]                                       = true
+
+-- Stats panel
+L["Tank Stats"]                    = true
+L["Click to toggle stats panel."]  = true
+L["Avoidance"]                     = true
+L["Dodge"]                         = true
+L["Parry"]                         = true
+L["Block"]                         = true
+L["Miss"]                          = true
+L["Total Avoid"]                   = true
+L["Defense"]                       = true
+L["Def Skill"]                     = true
+L["Def Rating"]                    = true
+L["Crit Immune"]                   = true
+L["Yes"]                           = true
+L["Offense"]                       = true
+L["Hit"]                           = true
+L["Expertise"]                     = true
+L["Survivability"]                 = true
+L["Health"]                        = true
+L["Armor"]                         = true
+L["Dmg Reduction"]                 = true
+L["Resilience"]                    = true
+L["EHP"]                           = true
 
 -- Hotkey dialog (ConsumableBar.lua)
 L["Cannot set hotkeys in combat."]   = true
@@ -228,3 +288,15 @@ L["Kibler's Bits"]             = true
 L["Grilled Mudfish"]           = true
 L["Roasted Clefthoof"]         = true
 L["Feltail Delight"]           = true
+
+-- ── Consumable Item Labels (newer additions) ──────────────────────────────────
+L["Charged Crystal Focus"]        = true
+L["Crystal Healing Potion"]       = true
+L["Crystal Mana Potion"]          = true
+L["Red Ogre Brew Special"]        = true
+L["Blue Ogre Brew Special"]       = true
+L["Unstable Flask of the Bandit"] = true
+L["Unstable Flask of the Soldier"] = true
+L["Unstable Flask of the Beast"]  = true
+L["Healing Potion Injector"]      = true
+L["Mana Potion Injector"]         = true
