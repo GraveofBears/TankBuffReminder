@@ -153,6 +153,7 @@ local function CreateSoundDropdown(parent, uniqueName, x, y)
     UIDropDownMenu_SetWidth(dd, 150)
     UIDropDownMenu_Initialize(dd, function(self, level)
         if not cfg.sounds then return end
+        if not TankBuffReminderCharDB then return end
         table.wipe(dropdownInfo)
         for _, sound in ipairs(cfg.sounds) do
             local sid = sound.id
@@ -233,6 +234,54 @@ local function CreateColorButton(parent, label, x, y, dbKey, defaultColor, onCha
 end
 
 -------------------------------------------------------------------------------
+-- Grayout Helpers (Taunt + Threat sub-options dim when master switch is off)
+-------------------------------------------------------------------------------
+local function SetSubOptionState(cb, enabled)
+    if not cb then return end
+    cb:SetEnabled(enabled)
+    cb.Text:SetTextColor(enabled and 1 or 0.5, enabled and 1 or 0.5, enabled and 1 or 0.5)
+end
+
+local function UpdateTauntOptionsVisuals(db)
+    local on = db and db.tauntEnabled ~= false  -- default true, mirrors refresh logic
+
+    local tauntBoxes = {
+        panel.tauntWarningCB, panel.tauntSayCB, panel.tauntYellCB,
+        panel.tauntPartyCB,   panel.tauntRaidCB, panel.tauntSoundCB,
+    }
+    for _, cb in ipairs(tauntBoxes) do
+        SetSubOptionState(cb, on)
+    end
+end
+
+local function UpdateThreatOptionsVisuals(db)
+    local on = db and db.threatEnabled or false
+
+    local threatBoxes = {
+        panel.threatWarningCB, panel.threatSayCB, panel.threatYellCB,
+        panel.threatPartyCB,   panel.threatRaidCB, panel.threatSoundCB,
+        panel.threatMissCB,    panel.threatResistCB, panel.threatCCCB,
+        panel.threatCCFullCombatCB,
+    }
+    for _, cb in ipairs(threatBoxes) do
+        SetSubOptionState(cb, on)
+    end
+
+    -- Gray the threat window slider
+    if panel.threatWindowSlider then
+        panel.threatWindowSlider:SetEnabled(on)
+        local sliderTitle = _G[panel.threatWindowSlider:GetName() .. "Text"]
+        if sliderTitle then
+            if on then
+                sliderTitle:SetTextColor(1, 0.82, 0)  -- gold when active
+            else
+                sliderTitle:SetTextColor(0.5, 0.5, 0.5)
+            end
+        end
+    end
+end
+
+-------------------------------------------------------------------------------
 -- Master SyncSettings 
 -------------------------------------------------------------------------------
 panel.checkboxes = {}  
@@ -268,8 +317,8 @@ local function SyncSettings()
     globalDB.consTimerOffsetY  = panel.consTimerOffsetSlider:GetValue()
     globalDB.consTimerAlpha    = panel.consTimerAlphaSlider:GetValue()
     globalDB.consPulseSpeed    = panel.consPulseSlider:GetValue()
-    globalDB.consMouseover     = panel.consMouseoverCB:GetChecked()
-    globalDB.consHideEmpty     = panel.consHideEmptyCB:GetChecked()
+    globalDB.consMouseover      = panel.consMouseoverCB:GetChecked()
+    globalDB.consHideEmpty      = panel.consHideEmptyCB:GetChecked()
     globalDB.consOrientation   = panel.consOrientVertRB:GetChecked() and "vertical" or "horizontal"
 
     -- Consumable colors
@@ -298,7 +347,7 @@ local function SyncSettings()
     db.threatMiss          = panel.threatMissCB:GetChecked() and true or false
     db.threatResist        = panel.threatResistCB:GetChecked() and true or false
     db.threatCC            = panel.threatCCCB:GetChecked() and true or false
-	db.threatCCFullCombat  = panel.threatCCFullCombatCB:GetChecked() and true or false
+    db.threatCCFullCombat  = panel.threatCCFullCombatCB:GetChecked() and true or false
     db.threatWindow        = panel.threatWindowSlider:GetValue()
 
     -- Automation tab
@@ -327,6 +376,22 @@ local function SyncSettings()
             end
         end
     end
+	
+	-- Minimap Button Settings Save (With Safety Nil Guards & Orbital Variables)
+    if panel.mapBtnShowCB then
+        db.showMinimapButton = panel.mapBtnShowCB:GetChecked()
+    end
+    if panel.mapAngleSlider then
+        db.minimapAngle = math.floor(panel.mapAngleSlider:GetValue() + 0.5)
+    end
+    if panel.mapRadiusSlider then
+        db.minimapRadiusOffset = math.floor(panel.mapRadiusSlider:GetValue() + 0.5)
+    end
+
+    -- Live trigger update to the button layout
+    if TBR_MinimapButton and TBR_MinimapButton.UpdatePositionFromOffsets then 
+        TBR_MinimapButton:UpdatePositionFromOffsets() 
+    end
 
     -- Notify subsystems
     if TankBuffReminder_UpdateGlow    then TankBuffReminder_UpdateGlow()    end
@@ -341,14 +406,18 @@ local function SyncSettings()
         if TBR_UI_Rebuild then TBR_UI_Rebuild() end
     end
 
-	if TBR_RemovalUI_Update then
-		TBR_RemovalUI_Update()
-	end
+    if TBR_RemovalUI_Update then
+        TBR_RemovalUI_Update()
+    end
 
     if panel._needsConsRebuild then
         panel._needsConsRebuild = false
         if TBR_ConsBar_Rebuild then TBR_ConsBar_Rebuild() end
     end
+
+    -- Sync visual appearance of the suboptions based on module status
+    UpdateTauntOptionsVisuals(db)
+    UpdateThreatOptionsVisuals(db)
 end
 
 -------------------------------------------------------------------------------
@@ -875,7 +944,57 @@ defBtn:SetScript("OnClick", function()
     if TBR_DefenseCap_Toggle then TBR_DefenseCap_Toggle() end
 end)
 
-appChild:SetHeight(1150)
+-------------------------------------------------------------------------------
+-- SECTION 4: MINIMAP BUTTON CONFIG
+-------------------------------------------------------------------------------
+local mapDiv = appChild:CreateTexture(nil, "ARTWORK")
+mapDiv:SetSize(460, 1)
+mapDiv:SetColorTexture(1, 1, 1, 0.15)
+mapDiv:SetPoint("TOPLEFT", 10, -1120)
+
+AppHeader(L["Minimap Button Settings"], -1140)
+
+panel.mapBtnShowCB = CreateCheckbox(appChild, L["Show Minimap Button"], col1, -1180)
+panel.mapBtnShowCB:SetScript("OnClick", function(self)
+    SyncSettings()
+    if TBR_MinimapButton then
+        if TankBuffReminderCharDB.showMinimapButton ~= false then
+            TBR_MinimapButton:Show()
+        else
+            TBR_MinimapButton:Hide()
+        end
+    end
+end)
+
+-- Angle Slider (0 to 360 degrees)
+panel.mapAngleSlider = CreateFloatSlider(appChild, L["Minimap Angle"], 0, 360, col1, -1230, "TBR_MinimapAngleSlider")
+panel.mapAngleSlider:SetValueStep(1)
+panel.mapAngleSlider:SetObeyStepOnDrag(true)
+panel.mapAngleSlider:SetScript("OnValueChanged", function(self, v)
+    local val = math.floor(v + 0.5)
+    local text = _G[self:GetName() .. "Text"]
+    if text then text:SetText(string.format("%s: %d°", L["Minimap Angle"], val)) end
+    if TankBuffReminderCharDB then TankBuffReminderCharDB.minimapAngle = val end
+    if TBR_MinimapButton and TBR_MinimapButton.UpdatePositionFromOffsets then 
+        TBR_MinimapButton:UpdatePositionFromOffsets() 
+    end
+end)
+
+-- Radius Distance Slider (-50 to 100 pixels out from normal border edge)
+panel.mapRadiusSlider = CreateFloatSlider(appChild, L["Minimap Distance"], -50, 100, col2, -1230, "TBR_MinimapRadiusSlider")
+panel.mapRadiusSlider:SetValueStep(1)
+panel.mapRadiusSlider:SetObeyStepOnDrag(true)
+panel.mapRadiusSlider:SetScript("OnValueChanged", function(self, v)
+    local val = math.floor(v + 0.5)
+    local text = _G[self:GetName() .. "Text"]
+    if text then text:SetText(string.format("%s: %d", L["Minimap Distance"], val)) end
+    if TankBuffReminderCharDB then TankBuffReminderCharDB.minimapRadiusOffset = val end
+    if TBR_MinimapButton and TBR_MinimapButton.UpdatePositionFromOffsets then 
+        TBR_MinimapButton:UpdatePositionFromOffsets() 
+    end
+end)
+
+appChild:SetHeight(1320)
 
 -------------------------------------------------------------------------------
 -- TAB 3 — ALERTS
@@ -972,7 +1091,7 @@ for _, cb in ipairs({ panel.threatMissCB, panel.threatResistCB,
     cb:SetScript("OnClick", SyncSettings)
 end
 
-panel.threatWindowSlider = CreateFloatSlider(alertPage, L["Alert Window (sec)"], 3, 20, alX2, -415, "TBR_ThreatWindowSlider")
+panel.threatWindowSlider = CreateFloatSlider(alertPage, L["Alert Window (sec)"], 5, 25, alX2, -415, "TBR_ThreatWindowSlider")
 panel.threatWindowSlider:SetScript("OnValueChanged", function(self, v)
     local val = math.floor(v + 0.5)
     local text = _G[self:GetName() .. "Text"]
@@ -992,7 +1111,7 @@ panel.threatSoundDropdown.dbKey = "threatSoundID"
 -- TAB 4 — AUTOMATION
 -------------------------------------------------------------------------------
 local autoPage = tabPages[4]
-local auX1, auX2 = 10, 360  -- Shifted auX2 from 310 to 360 to push Column 2 further right
+local auX1, auX2 = 10, 360
 
 -- COLUMN 1: Combat Automation
 MakeHeader(autoPage, L["Combat Automation"], auX1, -10)
@@ -1214,17 +1333,17 @@ function panel.refresh()
     SetDropdownLabel(panel.tauntSoundDropdown, "tauntSoundID", cfg.defaults.tauntSoundID)
 
     -- Threat Alert
-    panel.threatEnabledCB:SetChecked(charDB.threatEnabled ~= false)
-    panel.threatWarningCB:SetChecked(charDB.threatWarning ~= false)
+    panel.threatEnabledCB:SetChecked(charDB.threatEnabled == true)
+    panel.threatWarningCB:SetChecked(charDB.threatWarning == true)
     panel.threatSayCB:SetChecked(charDB.threatSay == true)
     panel.threatYellCB:SetChecked(charDB.threatYell == true)
     panel.threatPartyCB:SetChecked(charDB.threatParty == true)
     panel.threatRaidCB:SetChecked(charDB.threatRaid == true)
-    panel.threatSoundCB:SetChecked(charDB.threatSoundEnabled ~= false)
-    panel.threatMissCB:SetChecked(charDB.threatMiss ~= false)
-    panel.threatResistCB:SetChecked(charDB.threatResist ~= false)
-    panel.threatCCCB:SetChecked(charDB.threatCC ~= false)
-	panel.threatCCFullCombatCB:SetChecked(charDB.threatCCFullCombat ~= false)
+    panel.threatSoundCB:SetChecked(charDB.threatSoundEnabled == true)
+    panel.threatMissCB:SetChecked(charDB.threatMiss == true)
+    panel.threatResistCB:SetChecked(charDB.threatResist == true)
+    panel.threatCCCB:SetChecked(charDB.threatCC == true)
+	panel.threatCCFullCombatCB:SetChecked(charDB.threatCCFullCombat == true)
     panel.threatWindowSlider:SetValue(charDB.threatWindow or 5)
     SetDropdownLabel(panel.threatSoundDropdown, "threatSoundID", cfg.defaults.tauntSoundID)
 
@@ -1255,6 +1374,19 @@ function panel.refresh()
     panel.defCapScaleSlider:SetValue(defScale)
     local defScaleText = _G["TBR_DefCapScaleSliderText"]
     if defScaleText then defScaleText:SetText(string.format("%s: %.2f", L["Chart Scale"], defScale)) end
+	
+	-- Minimap Button Settings Initialization
+    panel.mapBtnShowCB:SetChecked(charDB.showMinimapButton ~= false)
+    
+    local mAngle = charDB.minimapAngle or 45
+    panel.mapAngleSlider:SetValue(mAngle)
+    local mAngleText = _G["TBR_MinimapAngleSliderText"]
+    if mAngleText then mAngleText:SetText(string.format("%s: %d°", L["Minimap Angle"], mAngle)) end
+
+    local mRadius = charDB.minimapRadiusOffset or 0
+    panel.mapRadiusSlider:SetValue(mRadius)
+    local mRadiusText = _G["TBR_MinimapRadiusSliderText"]
+    if mRadiusText then mRadiusText:SetText(string.format("%s: %d", L["Minimap Distance"], mRadius)) end
 
     -- Removal UI Sync
     local rScale = globalDB.removalScale or 1.0
@@ -1282,6 +1414,10 @@ function panel.refresh()
     if panel.defCapColorBtn and panel.defCapColorBtn.Refresh then
         panel.defCapColorBtn:Refresh()
     end
+
+    -- Apply grayout state so sub-options reflect the master switches on open
+    UpdateTauntOptionsVisuals(charDB)
+    UpdateThreatOptionsVisuals(charDB)
 
     -- Consumables tab
     if panel.consBarEnabledCB then
@@ -1485,5 +1621,9 @@ Settings.RegisterAddOnCategory(category)
 
 SLASH_TANKBUFFREMINDER1 = "/tbr"
 SlashCmdList["TANKBUFFREMINDER"] = function()
+    if InCombatLockdown() then
+        print("|cFFFF6600[TBR]|r Cannot open options while in combat.")
+        return
+    end
     Settings.OpenToCategory(category:GetID())
 end

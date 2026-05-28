@@ -136,7 +136,7 @@ local WINDOW_W       = 340
 local STATS_PANEL_W  = 220
 local DROPDOWN_H     = 24   -- height reserved for the boss level dropdown
 local calculatedChartH = 130 + DROPDOWN_H + (VISIBLE_ROWS * ROW_HEIGHT)
-local minimumStatsH    = 436
+local minimumStatsH    = 410   -- exact: 58 top + 5 headers + 18 rows + 4 gaps
 local WINDOW_H         = math.max(calculatedChartH, minimumStatsH)
 
 local COL_SKILL  = 28
@@ -603,52 +603,62 @@ critStatusHeaderLabel:SetFont("Fonts\\FRIZQT__.TTF", 11, "OUTLINE")
 critStatusHeaderLabel:SetText("")
 
 -- Push y further down from -44 to -62 to make space for the new label line
-local y = -62
+local y = -58
 
 -- Avoidance Section
 MakeSectionHeader(L["Avoidance"], y)
-y = y - 20
+y = y - 16
 MakeStatRow("dodge",   L["Dodge"],          y)
-y = y - 16
+y = y - 14
 MakeStatRow("parry",   L["Parry"],          y)
-y = y - 16
+y = y - 14
 MakeStatRow("block",   L["Block"],          y)
-y = y - 16
+y = y - 14
 MakeStatRow("miss",    L["Miss"],           y)
-y = y - 16
+y = y - 14
 MakeStatRow("avoid",   L["Total Avoid"],    y)
-y = y - 24
+y = y - 18
 
 -- Defense Section
 MakeSectionHeader(L["Defense"], y)
-y = y - 20
+y = y - 16
 MakeStatRow("defSkill",  L["Def Skill"],    y)
-y = y - 16
+y = y - 14
 MakeStatRow("defRating", L["Def Rating"],   y)
-y = y - 16
+y = y - 14
 MakeStatRow("critImmune",L["Crit Immune"],  y)
-y = y - 24
-
--- Offense Section
-MakeSectionHeader(L["Offense"], y)
-y = y - 20
-MakeStatRow("hit",       L["Hit"],          y)
-y = y - 16
-MakeStatRow("expertise", L["Expertise"],    y)
-y = y - 24
+y = y - 18
 
 -- Survivability Section
 MakeSectionHeader(L["Survivability"], y)
-y = y - 20
+y = y - 16
 MakeStatRow("hp",        L["Health"],       y)
-y = y - 16
+y = y - 14
 MakeStatRow("armor",     L["Armor"],        y)
-y = y - 16
+y = y - 14
 MakeStatRow("dmgReduce", L["Dmg Reduction"],y)
-y = y - 16
+y = y - 14
 MakeStatRow("resil",     L["Resilience"],   y)
-y = y - 16
+y = y - 14
 MakeStatRow("ehp",       L["EHP"],          y)
+y = y - 18
+
+-- Offense Section
+MakeSectionHeader(L["Offense"], y)
+y = y - 16
+MakeStatRow("ap",        L["Attack Power"],  y)
+y = y - 14
+MakeStatRow("hit",       L["Hit"],           y)
+y = y - 14
+MakeStatRow("expertise", L["Expertise"],     y)
+y = y - 14
+MakeStatRow("crit",      L["Crit Chance"],   y)
+y = y - 18
+
+-- TPS Section
+MakeSectionHeader(L["TPS Estimate"], y)
+y = y - 16
+MakeStatRow("tpsTotal",  L["Est. TPS"],      y)
 
 -- Stat calculation
 local function fmt1(n) return string.format("%.2f%%", n) end
@@ -753,13 +763,24 @@ UpdateStats = function()
         SetStat("avoid", fmt1(totalAvoid), r, g, b)
     end
 
-    ---------------------------------------------------------------------------
+---------------------------------------------------------------------------
     -- Offense
     ---------------------------------------------------------------------------
+    local baseAP, posAP, negAP = UnitAttackPower("player")
+    local totalAP = (baseAP or 0) + (posAP or 0) + (negAP or 0)
     local hitBonus = GetCombatRatingBonus and GetCombatRatingBonus(CR_HIT_MELEE) or 0
     local expPct   = GetExpertisePercent and GetExpertisePercent() or 0
-    SetStat("hit",       fmt1(hitBonus), r, g, b)
-    SetStat("expertise", fmt1(expPct),   r, g, b)
+    local critPct  = GetCritChance and GetCritChance() or 0
+
+    local hitCapped = hitBonus >= 9.0
+    local expCapped = expPct   >= 6.5
+    local hitColor  = hitCapped and "|cff00ff00" or "|cffff4444"
+    local expColor  = expCapped and "|cff00ff00" or "|cffff4444"
+
+    SetStat("ap",        fmtInt(totalAP),                                        r, g, b)
+    SetStat("hit",       hitColor .. string.format("%.2f%%", hitBonus) .. "|r",  r, g, b)
+    SetStat("expertise", expColor .. string.format("%.2f%%", expPct)   .. "|r",  r, g, b)
+    SetStat("crit",      string.format("%.2f%%", critPct),                       r, g, b)
 
     ---------------------------------------------------------------------------
     -- Survivability
@@ -780,6 +801,92 @@ UpdateStats = function()
     SetStat("dmgReduce", fmt1(dmgReduce * 100), r, g, b)
     SetStat("resil",     fmtInt(resilRating),   r, g, b)
     SetStat("ehp",       fmtInt(ehp),           r, g, b)
+
+    ---------------------------------------------------------------------------
+    -- TPS Estimate
+    ---------------------------------------------------------------------------
+    do
+        local hitFactor = math.min(1.0, 0.91 + hitBonus * 0.01)
+
+        if class == "DRUID" then
+            local formID = GetShapeshiftFormID and GetShapeshiftFormID() or 0
+            
+            -- Setup baseline variables to shift dynamically based on active form
+            local speedMultiplier = 2.0  -- Caster / Moonkin default
+            local damageModifier  = 1.0  -- Caster / Moonkin default
+            local threatModifier  = 1.0  -- Caster / Moonkin default
+            local abilityBias     = 1.0  -- Caster / Moonkin default
+            local critMultiplier  = 1.0  -- Standard physical crit modifier
+
+            if formID == 5 or formID == 8 then
+                -- BEAR FORM (Dire Bear / Normal Bear)
+                speedMultiplier = 2.5   -- Base swing speed
+                damageModifier  = 1.9   -- 190% damage modifier in Dire Bear
+                threatModifier  = 1.30 * 1.15 -- 1.3 Stance mod * 1.15 Feral Instinct talent
+                abilityBias     = 1.3   -- Maul/Mangle active use bias
+                critMultiplier  = 1.0   -- Double damage + Primal Fury generation
+            elseif formID == 3 then
+                -- CAT FORM
+                speedMultiplier = 1.0   -- Fast 1.0 base swing speed
+                damageModifier  = 1.0   -- No raw damage multiplier
+                threatModifier  = 0.71  -- Passive 29% threat REDUCTION inherent to Cat form
+                abilityBias     = 1.15  -- Claw/Shred/Mangle use bias
+                critMultiplier  = 1.0   -- Cat crits do 200% damage
+            elseif formID == 31 then
+                -- MOONKIN FORM
+                speedMultiplier = 2.0
+                damageModifier  = 1.0
+                threatModifier  = 1.0
+                abilityBias     = 0.9   -- Spellcasting delay bias for standard tracking
+                critMultiplier  = 0.5   -- Spell crits do 150% damage baseline in TBC
+            end
+
+            -- Execute the structural math adjusted for the active form's profile
+            local whiteDps  = totalAP / 14 * speedMultiplier
+            local critBonus = 1 + ((critPct / 100) * critMultiplier)
+            local estimated = whiteDps * damageModifier * abilityBias * hitFactor * threatModifier * critBonus
+
+            local formNote = ""
+            if formID ~= 5 and formID ~= 8 then
+                if formID == 3 then
+                    formNote = " |cff888888(cat)|r"
+                elseif formID == 31 then
+                    formNote = " |cff888888(moonkin)|r"
+                else
+                    formNote = " |cff888888(no form)|r"
+                end
+            end
+            SetStat("tpsTotal", "|cffffd100" .. fmtInt(estimated) .. " TPS|r" .. formNote, r, g, b)
+
+        elseif class == "WARRIOR" then
+            local whiteDps  = totalAP / 14 * 1.6
+            local critBonus = 1 + (critPct / 100) * 0.5
+            local estimated = whiteDps * 2.4 * hitFactor * critBonus
+            SetStat("tpsTotal", "|cffffd100" .. fmtInt(estimated) .. " TPS|r", r, g, b)
+
+		elseif class == "PALADIN" then
+            -- Pull live Holy spell power and block value from the character sheet
+            local spellPower = GetSpellBonusDamage(2) or 0 -- 2 is the Holy school ID
+            local blockValue = GetShieldBlockValue() or 0
+
+            -- TBC Paladin rotation baseline threat:
+            -- Consecration, Holy Shield, and Seal/Judgement of Righteousness
+            local baseHolyDps   = 60 + (spellPower * 0.12) -- Consecration ticks + Seal scaling
+            local holyShieldDps = (155 + (blockValue + spellPower * 0.05)) * 0.4 -- Assumes standard boss hit rate
+            
+            -- Righteous Fury talented multiplies Holy threat by 1.9x
+            local totalHolyThreat = (baseHolyDps + holyShieldDps) * 1.9
+            
+            -- Add a minor physical baseline (Righteous swings) factored by hit
+            local physicalThreat  = (totalAP / 14 * 1.6) * hitFactor 
+            local estimated       = totalHolyThreat + physicalThreat
+
+            SetStat("tpsTotal", "|cffffd100" .. fmtInt(estimated) .. " TPS|r", r, g, b)
+
+        else
+            SetStat("tpsTotal", "|cff888888—|r", 0.5, 0.5, 0.5)
+        end
+    end
 
     statsPanelTitle:SetTextColor(r, g, b)
     statsPanelDivider:SetVertexColor(r, g, b, 0.6)
@@ -946,6 +1053,11 @@ local charBtnBorder = charBtn:CreateTexture(nil, "OVERLAY")
 charBtnBorder:SetTexture("Interface\\Buttons\\UI-Quickslot-Depress")
 charBtnBorder:SetAllPoints()
 
+local statusIndicator = charBtn:CreateTexture(nil, "OVERLAY")
+statusIndicator:SetSize(16, 16)
+statusIndicator:SetPoint("TOPRIGHT", charBtn, "TOPRIGHT", 2, 2)
+statusIndicator:Hide()
+
 charBtn:SetMovable(true)
 charBtn:SetClampedToScreen(true)
 
@@ -1002,6 +1114,52 @@ function TBR_DefCapBtn_Refresh()
     end
 end
 
+local function UpdateCritStatusIndicator()
+    if not charBtn or not charBtn:IsShown() then return end
+
+    local _, class = UnitClass("player")
+    local chart = CHARTS[class]
+    if not chart then 
+        statusIndicator:Hide()
+        return 
+    end
+
+    local preset = GetTargetPreset()
+    local defSkill = GetCurrentDefenseSkill()
+    local baseSkill = UnitLevel("player") * 5
+    local critFromSkill = math.max(0, (defSkill - baseSkill) * 0.04)
+
+    local critFromResil = 0
+    if GetCombatRatingBonus then
+        critFromResil = GetCombatRatingBonus(CR_RESILIENCE_TAKEN_CRIT) or 0
+    end
+
+    local talentReduction = (class == "DRUID") and 3.0 or 0
+    local totalCritRed = critFromSkill + critFromResil + talentReduction
+    local isUncritable = totalCritRed >= preset.critReq
+
+    if isUncritable then
+        statusIndicator:SetTexture("Interface\\RaidFrame\\ReadyCheck-Ready")  -- Green Check
+        statusIndicator:SetVertexColor(0, 1, 0, 1)
+    else
+        statusIndicator:SetTexture("Interface\\RaidFrame\\ReadyCheck-NotReady") -- Red X
+        statusIndicator:SetVertexColor(1, 0.2, 0.2, 1)
+    end
+
+    statusIndicator:Show()
+end
+
+-- Update on relevant events
+charBtn:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+charBtn:RegisterEvent("UNIT_STATS")
+charBtn:RegisterEvent("UNIT_AURA")
+charBtn:RegisterEvent("COMBAT_RATING_UPDATE")
+charBtn:SetScript("OnEvent", function(self, event)
+    if event == "PLAYER_EQUIPMENT_CHANGED" or self:IsVisible() then
+        UpdateCritStatusIndicator()
+    end
+end)
+
 local posLoader = CreateFrame("Frame")
 posLoader:RegisterEvent("PLAYER_LOGIN")
 posLoader:SetScript("OnEvent", function()
@@ -1012,6 +1170,7 @@ posLoader:SetScript("OnEvent", function()
             window:SetPoint(p.point, UIParent, p.relPoint, p.x, p.y)
         end
         TBR_DefCapBtn_Refresh()
+		UpdateCritStatusIndicator()
         TBR_DefenseCap_UpdateColor()
         RebuildCharts()   -- apply any saved preset from DB
         RefreshBossDropdown()
@@ -1103,6 +1262,12 @@ function TBR_DefenseCap_ForceRepopulate()
     if window and window:IsShown() then
         PopulateChart()
     end
+end
+
+local oldToggle = TBR_DefenseCap_Toggle
+TBR_DefenseCap_Toggle = function()
+    oldToggle()
+    C_Timer.After(0.1, UpdateCritStatusIndicator)
 end
 
 SLASH_TBRCAP1 = "/tbrcap"

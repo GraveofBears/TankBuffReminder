@@ -126,6 +126,49 @@ function TBR_ForceCheck()
 end
 
 -------------------------------------------------------------------------------
+-- Master enable/disable — called by MinimapButton toggle
+-------------------------------------------------------------------------------
+function TBR_SetAddonEnabled(enabled)
+    if not TankBuffReminderCharDB then return end
+    TankBuffReminderCharDB.disabled = not enabled
+
+    if not enabled then
+        -- Wipe trackedBuffs so TBR_UI_Rebuild sees an empty list and hides the anchor
+        if trackedBuffs then table_wipe(trackedBuffs) end
+
+        -- Hide every UI surface directly — don't rely on rebuild logic
+        local buffAnchor = _G["TankBuffReminderFrame"]
+        if buffAnchor then buffAnchor:Hide() end
+
+        local consAnchor = _G["TBR_ConsumableBar"]
+        if consAnchor then consAnchor:Hide() end
+
+        local removalAnchor = _G["TBR_RemovalAnchor"]
+        if removalAnchor then removalAnchor:Hide() end
+
+        if TBR_CharFrameDefCapButton then TBR_CharFrameDefCapButton:Hide() end
+
+        -- Also tear down slots so nothing lingers on re-enable
+        if TBR_UI_Rebuild then TBR_UI_Rebuild() end
+
+        print("|cFFFF6600[TBR]|r Addon disabled.")
+    else
+        -- Full login-style rebuild restores everything
+        TankBuffReminder_RebuildTrackedBuffs()
+        if TBR_ConsBar_Rebuild   then TBR_ConsBar_Rebuild()   end
+        if TBR_DefCapBtn_Refresh then TBR_DefCapBtn_Refresh() end
+
+        -- RemovalUI anchor must be explicitly shown — TBR_RemovalUI_Update only
+        -- shows buttons inside it based on buff state, never the anchor itself
+        local removalAnchor = _G["TBR_RemovalAnchor"]
+        if removalAnchor then removalAnchor:Show() end
+        if TBR_RemovalUI_Update  then TBR_RemovalUI_Update()  end
+
+        print("|cFF33FF33[TBR]|r Addon enabled.")
+    end
+end
+
+-------------------------------------------------------------------------------
 -- Automation
 -------------------------------------------------------------------------------
 local roleUpdatePending = false -- Prevent spamming role assignments before server responds
@@ -174,6 +217,7 @@ end
 -------------------------------------------------------------------------------
 RunVisibilityCheck = function()
     if isZoning or not trackedBuffs then return end
+    if TankBuffReminderCharDB and TankBuffReminderCharDB.disabled then return end
     DoAutomation()
 
     table_wipe(buffStates)
@@ -321,6 +365,11 @@ for _, b in ipairs(cfg.buffs) do buffByKey[b.key] = b end
 local buffOrderKeySet = {}
 
 function TankBuffReminder_RebuildTrackedBuffs()
+    if TankBuffReminderCharDB and TankBuffReminderCharDB.disabled then
+        if TBR_UI_Rebuild then TBR_UI_Rebuild() end
+        return
+    end
+
     if not trackedBuffs then
         trackedBuffs = {}
     else
@@ -444,6 +493,8 @@ eF:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
         C_Timer.After(2, OnZoneTimer)
         return
     end
+	
+	if TankBuffReminderCharDB and TankBuffReminderCharDB.disabled and event ~= "PLAYER_LOGIN" then return end
 
     if event == "PLAYER_LOGIN" then
         TankBuffReminderDB = TankBuffReminderDB or {}

@@ -1170,6 +1170,8 @@ eF:RegisterEvent("PLAYER_REGEN_ENABLED")
 eF:RegisterEvent("UNIT_AURA")
 
 eF:SetScript("OnEvent", function(self, event, arg1)
+    if TankBuffReminderCharDB and TankBuffReminderCharDB.disabled and event ~= "PLAYER_LOGIN" then return end
+
     if event == "PLAYER_LOGIN" then
         C_Timer.After(0.5, function()
             UpdateItemCounts()

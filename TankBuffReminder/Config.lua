@@ -73,7 +73,7 @@ TankBuffReminderConfig = {
         pulseSpeed = 4,
         soundID = 8959,
         glowSize = 2,
-        threatWindow = 5,                    -- ← Fixed: added missing comma
+        threatWindow = 5,                   
         
         glowColor = { r = 1, g = 1, b = 0.6, a = 1 },
         autoRemoveSalvation = false,
@@ -111,16 +111,16 @@ TankBuffReminderConfig = {
         tauntSoundID = 8959,
         
         -- Threat Alert System
-        threatEnabled = true,
-        threatWarning = true,
+        threatEnabled = false,
+        threatWarning = false,
         threatSay = false,
         threatYell = false,
         threatParty = false,
         threatRaid = false,
-        threatSoundEnabled = true,
-        threatMiss = true,
-        threatResist = true,
-        threatCC = true,
+        threatSoundEnabled = false,
+        threatMiss = false,
+        threatResist = false,
+        threatCC = false,
         threatWindow = 5,
 		threatCCFullCombat = false,
         
@@ -155,7 +155,7 @@ TankBuffReminderConfig = {
         { key="healthstone",   label="Healthstone",           category="Recovery",  itemIDs={22103, 22104, 22105}, icon="Interface\\Icons\\inv_misc_food_55", defaultOn=false, isPotionType=false, druidInstant=true,  druidWarn=false },
         { key="bandage",       label="Bandage",               category="Recovery",  itemIDs={21991, 21990},        icon="Interface\\Icons\\inv_misc_bandage_12", defaultOn=false, isPotionType=false, druidInstant=false, druidWarn=true  },
         { key="nightmareSeed", label="Nightmare Seed",        category="Recovery",  itemIDs={22797},               icon="Interface\\Icons\\inv_misc_herb_nightmareseed", defaultOn=false, isPotionType=false, druidInstant=true,  druidWarn=false },
-		{ key="chargedCrystalFocus", label="Charged Crystal Focus",     category="Recovery", itemIDs={32578}, icon="Interface\\Icons\\inv_misc_crystal03", defaultOn=true,  isPotionType=true, druidInstant=true, druidWarn=false },
+		{ key="chargedCrystalFocus", label="Charged Crystal Focus",     category="Recovery", itemIDs={32578}, icon="Interface\\Icons\\inv_misc_crystal03", defaultOn=false, isPotionType=true, druidInstant=true, druidWarn=false },
 		
         -- Potions
         { key="healPotion",      label="Healing Potion",          category="Potions", itemIDs={22829}, icon="Interface\\Icons\\inv_potion_167", defaultOn=false, isPotionType=true,  druidInstant=true, druidWarn=false },

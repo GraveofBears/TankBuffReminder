@@ -81,9 +81,9 @@ local function ProcessResistBuffer()
     -- Chat Announcements
     if IsInGroup() then
         if TankBuffReminderCharDB.tauntSay then
-            SendChatMessage(msg, "SAY")
+            pcall(SendChatMessage, msg, "SAY")
         elseif TankBuffReminderCharDB.tauntYell then
-            SendChatMessage(msg, "YELL")
+            pcall(SendChatMessage, msg, "YELL")
         elseif TankBuffReminderCharDB.tauntRaid and IsInRaid() then
             SendChatMessage(msg, "RAID")
         elseif TankBuffReminderCharDB.tauntParty then
@@ -99,6 +99,7 @@ tF:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 
 tF:SetScript("OnEvent", function(self, event)
     if event == "COMBAT_LOG_EVENT_UNFILTERED" then
+        if TankBuffReminderCharDB and TankBuffReminderCharDB.disabled then return end
         local _, subEvent, _, sourceGUID, _, _, _, _, destName, _, _, spellID, _, _, missType =
             CombatLogGetCurrentEventInfo()
 
