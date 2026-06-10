@@ -598,9 +598,18 @@ statsPanelDivider:SetVertexColor(0.85, 0.75, 0.3, 0.6)
 
 -- Create the new text element right below the title divider line
 local critStatusHeaderLabel = statsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-critStatusHeaderLabel:SetPoint("TOPLEFT", 14, -40)
+critStatusHeaderLabel:SetPoint("TOPLEFT", -8, -40)
 critStatusHeaderLabel:SetFont("Fonts\\FRIZQT__.TTF", 11, "OUTLINE")
+critStatusHeaderLabel:SetWidth(120)   -- fixed width prevents wrapping
 critStatusHeaderLabel:SetText("")
+
+-- Sits on the same line, right side — shows bear/form note without shifting anything
+local bearFormLabel = statsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+bearFormLabel:SetPoint("TOPRIGHT", -14, -40)
+bearFormLabel:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+bearFormLabel:SetWidth(90)            -- fixed width, right-anchored, can never push rows
+bearFormLabel:SetJustifyH("RIGHT")
+bearFormLabel:SetText("")
 
 -- Push y further down from -44 to -62 to make space for the new label line
 local y = -58
@@ -772,15 +781,10 @@ UpdateStats = function()
     local expPct   = GetExpertisePercent and GetExpertisePercent() or 0
     local critPct  = GetCritChance and GetCritChance() or 0
 
-    local hitCapped = hitBonus >= 9.0
-    local expCapped = expPct   >= 6.5
-    local hitColor  = hitCapped and "|cff00ff00" or "|cffff4444"
-    local expColor  = expCapped and "|cff00ff00" or "|cffff4444"
-
-    SetStat("ap",        fmtInt(totalAP),                                        r, g, b)
-    SetStat("hit",       hitColor .. string.format("%.2f%%", hitBonus) .. "|r",  r, g, b)
-    SetStat("expertise", expColor .. string.format("%.2f%%", expPct)   .. "|r",  r, g, b)
-    SetStat("crit",      string.format("%.2f%%", critPct),                       r, g, b)
+    SetStat("ap",        fmtInt(totalAP),                          r, g, b)
+    SetStat("hit",       string.format("%.2f%%", hitBonus),        r, g, b)
+    SetStat("expertise", string.format("%.2f%%", expPct),          r, g, b)
+    SetStat("crit",      string.format("%.2f%%", critPct),         r, g, b)
 
     ---------------------------------------------------------------------------
     -- Survivability
@@ -810,80 +814,70 @@ UpdateStats = function()
 
         if class == "DRUID" then
             local formID = GetShapeshiftFormID and GetShapeshiftFormID() or 0
-            
-            -- Setup baseline variables to shift dynamically based on active form
-            local speedMultiplier = 2.0  -- Caster / Moonkin default
-            local damageModifier  = 1.0  -- Caster / Moonkin default
-            local threatModifier  = 1.0  -- Caster / Moonkin default
-            local abilityBias     = 1.0  -- Caster / Moonkin default
-            local critMultiplier  = 1.0  -- Standard physical crit modifier
+
+            local speedMultiplier = 2.0
+            local damageModifier  = 1.0
+            local threatModifier  = 1.0
+            local abilityBias     = 1.0
+            local critMultiplier  = 1.0
 
             if formID == 5 or formID == 8 then
-                -- BEAR FORM (Dire Bear / Normal Bear)
-                speedMultiplier = 2.5   -- Base swing speed
-                damageModifier  = 1.9   -- 190% damage modifier in Dire Bear
-                threatModifier  = 1.30 * 1.15 -- 1.3 Stance mod * 1.15 Feral Instinct talent
-                abilityBias     = 1.3   -- Maul/Mangle active use bias
-                critMultiplier  = 1.0   -- Double damage + Primal Fury generation
+                speedMultiplier = 2.5
+                damageModifier  = 1.9
+                threatModifier  = 1.30 * 1.15
+                abilityBias     = 1.3
+                critMultiplier  = 1.0
             elseif formID == 3 then
-                -- CAT FORM
-                speedMultiplier = 1.0   -- Fast 1.0 base swing speed
-                damageModifier  = 1.0   -- No raw damage multiplier
-                threatModifier  = 0.71  -- Passive 29% threat REDUCTION inherent to Cat form
-                abilityBias     = 1.15  -- Claw/Shred/Mangle use bias
-                critMultiplier  = 1.0   -- Cat crits do 200% damage
+                speedMultiplier = 1.0
+                damageModifier  = 1.0
+                threatModifier  = 0.71
+                abilityBias     = 1.15
+                critMultiplier  = 1.0
             elseif formID == 31 then
-                -- MOONKIN FORM
                 speedMultiplier = 2.0
                 damageModifier  = 1.0
                 threatModifier  = 1.0
-                abilityBias     = 0.9   -- Spellcasting delay bias for standard tracking
-                critMultiplier  = 0.5   -- Spell crits do 150% damage baseline in TBC
+                abilityBias     = 0.9
+                critMultiplier  = 0.5
             end
 
-            -- Execute the structural math adjusted for the active form's profile
             local whiteDps  = totalAP / 14 * speedMultiplier
             local critBonus = 1 + ((critPct / 100) * critMultiplier)
             local estimated = whiteDps * damageModifier * abilityBias * hitFactor * threatModifier * critBonus
 
-            local formNote = ""
-            if formID ~= 5 and formID ~= 8 then
-                if formID == 3 then
-                    formNote = " |cff888888(cat)|r"
-                elseif formID == 31 then
-                    formNote = " |cff888888(moonkin)|r"
-                else
-                    formNote = " |cff888888(no form)|r"
-                end
+            -- Form note goes to the dedicated right-side label at the top — never appended
+            if formID == 5 or formID == 8 then
+                bearFormLabel:SetText("")
+            elseif formID == 3 then
+                bearFormLabel:SetText("|cffff6600No Bear Form|r")
+            elseif formID == 31 then
+                bearFormLabel:SetText("|cffff6600No Bear Form|r")
+            else
+                bearFormLabel:SetText("|cffff6600No Bear Form|r")
             end
-            SetStat("tpsTotal", "|cffffd100" .. fmtInt(estimated) .. " TPS|r" .. formNote, r, g, b)
+
+            SetStat("tpsTotal", "|cffffd100" .. fmtInt(estimated) .. "|r", r, g, b)
 
         elseif class == "WARRIOR" then
+            bearFormLabel:SetText("")
             local whiteDps  = totalAP / 14 * 1.6
             local critBonus = 1 + (critPct / 100) * 0.5
             local estimated = whiteDps * 2.4 * hitFactor * critBonus
             SetStat("tpsTotal", "|cffffd100" .. fmtInt(estimated) .. " TPS|r", r, g, b)
 
-		elseif class == "PALADIN" then
-            -- Pull live Holy spell power and block value from the character sheet
-            local spellPower = GetSpellBonusDamage(2) or 0 -- 2 is the Holy school ID
-            local blockValue = GetShieldBlockValue() or 0
-
-            -- TBC Paladin rotation baseline threat:
-            -- Consecration, Holy Shield, and Seal/Judgement of Righteousness
-            local baseHolyDps   = 60 + (spellPower * 0.12) -- Consecration ticks + Seal scaling
-            local holyShieldDps = (155 + (blockValue + spellPower * 0.05)) * 0.4 -- Assumes standard boss hit rate
-            
-            -- Righteous Fury talented multiplies Holy threat by 1.9x
+        elseif class == "PALADIN" then
+            bearFormLabel:SetText("")
+            local spellPower    = GetSpellBonusDamage(2) or 0
+            local blockValue    = GetShieldBlockValue() or 0
+            local baseHolyDps   = 60 + (spellPower * 0.12)
+            local holyShieldDps = (155 + (blockValue + spellPower * 0.05)) * 0.4
             local totalHolyThreat = (baseHolyDps + holyShieldDps) * 1.9
-            
-            -- Add a minor physical baseline (Righteous swings) factored by hit
-            local physicalThreat  = (totalAP / 14 * 1.6) * hitFactor 
+            local physicalThreat  = (totalAP / 14 * 1.6) * hitFactor
             local estimated       = totalHolyThreat + physicalThreat
-
             SetStat("tpsTotal", "|cffffd100" .. fmtInt(estimated) .. " TPS|r", r, g, b)
 
         else
+            bearFormLabel:SetText("")
             SetStat("tpsTotal", "|cff888888—|r", 0.5, 0.5, 0.5)
         end
     end
@@ -1021,7 +1015,13 @@ function TBR_DefenseCap_Toggle()
     RefreshBossDropdown()
     window:Show()
     PopulateChart(true)
-	scrollBar:SetValue(0)
+
+    -- Scroll to the player's current defense skill row, centred in the visible area
+    local skill = GetCurrentDefenseSkill()
+    local _, maxScroll = scrollBar:GetMinMaxValues()
+    local rowOffset  = math.max(0, skill - 350) * ROW_HEIGHT
+    local halfVisible = math.floor(VISIBLE_ROWS / 2) * ROW_HEIGHT
+    scrollBar:SetValue(math.max(0, math.min(maxScroll, rowOffset - halfVisible)))
 
     -- ALWAYS default the stats panel to closed whenever the main window is opened
     statsPanelOpen = false

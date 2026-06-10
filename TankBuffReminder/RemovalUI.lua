@@ -40,6 +40,9 @@ end)
 -------------------------------------------------------------------------------
 -- Button factory 
 -------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- Button factory 
+-------------------------------------------------------------------------------
 local removalBtns = {}
 
 for _, def in ipairs(cfg.autoRemove) do
@@ -47,8 +50,16 @@ for _, def in ipairs(cfg.autoRemove) do
 
     local btn = CreateFrame("Button", "TBR_Removal_" .. def.key,
                             anchor, "SecureActionButtonTemplate")
-    btn:SetAttribute("type",  "cancelaura")
-    btn:SetAttribute("spell", def.watchNames[1])
+    
+    -- Using 'macro' type allows us to bundle all name variations into one click
+    btn:SetAttribute("type", "macro")
+    
+    local macroText = ""
+    for _, name in ipairs(def.watchNames) do
+        macroText = macroText .. "/cancelaura " .. name .. "\n"
+    end
+    btn:SetAttribute("macrotext", macroText)
+
     btn:RegisterForClicks("AnyUp", "AnyDown")
     btn:SetSize(40, 40)
 
@@ -89,19 +100,6 @@ for _, def in ipairs(cfg.autoRemove) do
     btn.index  = _
 
     removalBtns[def.key] = btn
-end
-
-do
-    local defaultSize = 40
-    local defaultSpacing = 4
-    local xOffset = 4
-    for _, def in ipairs(cfg.autoRemove) do
-        local btn = removalBtns[def.key]
-        btn:ClearAllPoints()
-        btn:SetPoint("LEFT", anchor, "LEFT", xOffset, 0)
-        xOffset = xOffset + defaultSize + defaultSpacing
-    end
-    anchor:SetSize(xOffset + 4, defaultSize + 8)
 end
 
 -------------------------------------------------------------------------------
@@ -167,26 +165,10 @@ function TBR_RemovalUI_Update(buffStates)
                         or (isActive and autoRemove and inCombat)
 
         if shouldShow then
+            -- We only update the icon display, NOT the secure attribute
             if not inCombat then
-                local matched = false
-                for i = 1, 40 do
-                    local bName, bIcon = UnitBuff("player", i)
-                    if not bName then break end
-                    for _, watchName in ipairs(def.watchNames) do
-                        if bName == watchName then
-                            btn:SetAttribute("spell", bName)
-                            btn.icon:SetTexture(bIcon)
-                            matched = true
-                            break
-                        end
-                    end
-                    if matched then break end
-                end
-                if not matched then
-                    local _, _, fallbackIcon = GetSpellInfo(def.spellID)
-                    if fallbackIcon then btn.icon:SetTexture(fallbackIcon) end
-                    btn:SetAttribute("spell", def.watchNames[1])
-                end
+                local _, _, icon = GetSpellInfo(def.spellID)
+                if icon then btn.icon:SetTexture(icon) end
             end
 
             btn.active = true
@@ -242,7 +224,6 @@ anchor:SetScript("OnEvent", function(self)
     self:ClearAllPoints()
     if TankBuffReminderDB and TankBuffReminderDB.removalPos then
         local p = TankBuffReminderDB.removalPos
-        -- Ensure we fallback gracefully if points are identical or malformed
         local point = p.p or "CENTER"
         local relativePoint = p.rp or "CENTER"
         

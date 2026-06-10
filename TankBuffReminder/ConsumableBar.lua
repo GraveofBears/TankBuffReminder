@@ -759,8 +759,21 @@ local function UpdateSlotVisuals()
 
         local resID = BestItemID(entry.itemIDs)
 
+        -- Only call ApplyButtonAttributes when the best item actually changed.
+        -- SetAttribute on any SecureActionButton triggers a visual refresh pass
+        -- on ALL sibling secure frames, which is what causes the whole bar to
+        -- flash when any item is used. Gate it strictly on a real ID change.
         if resID ~= btn.currentItemID and not inCombat then
-            ApplyButtonAttributes(slot, entry)
+            -- Double-check the macrotext would actually differ before setting
+            local newMacro = btn.druidInstant
+                and string.format("/changeactionbar [form:1]2;[form:3]3\n/use item:%d\n/cast [bar:2] !Dire Bear Form; [bar:3] !Cat Form\n/changeactionbar 1", resID or 0)
+                or ("/use item:" .. (resID or 0))
+            local curMacro = btn:GetAttribute("macrotext") or ""
+            if newMacro ~= curMacro then
+                ApplyButtonAttributes(slot, entry)
+            else
+                btn.currentItemID = resID  -- keep ID in sync without re-setting attributes
+            end
         end
 
         -- === POTION SHARED CD + INDIVIDUAL CD HANDLING ===

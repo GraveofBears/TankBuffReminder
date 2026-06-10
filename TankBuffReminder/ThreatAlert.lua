@@ -36,6 +36,10 @@ local dedupHash = {}
 -- Active CC tracking to avoid spam
 local activeCCs = {}
 
+-- Per-spell last-alert timestamps. Prevents AoE abilities (Demo Shout, Consecration,
+-- Swipe, Cleave, etc.) from flooding alerts by firing once per spellID per SPAM_THROTTLE.
+local spellAlertCooldowns = {}
+
 -------------------------------------------------------------------------------
 -- Categories: CC, Root, Silence, Disarm, Snare
 -------------------------------------------------------------------------------
@@ -794,16 +798,19 @@ local function FlushBuffer()
     end
 
     if IsInGroup() then
-        if IsInRaid() and TankBuffReminderCharDB.threatRaid then
+        if TankBuffReminderCharDB.threatRaid and IsInRaid() then
             SendChatMessage(msg, "RAID")
         elseif TankBuffReminderCharDB.threatParty then
             SendChatMessage(msg, "PARTY")
         elseif TankBuffReminderCharDB.threatSay then
-            -- pcall catches the Blizzard block and prevents the addon from crashing
             pcall(SendChatMessage, msg, "SAY")
         elseif TankBuffReminderCharDB.threatYell then
             pcall(SendChatMessage, msg, "YELL")
         end
+    elseif TankBuffReminderCharDB.threatSay then
+        pcall(SendChatMessage, msg, "SAY")
+    elseif TankBuffReminderCharDB.threatYell then
+        pcall(SendChatMessage, msg, "YELL")
     end
 end
 
@@ -910,6 +917,7 @@ tA:SetScript("OnEvent", function(self, event, ...)
         lastAlertTime = 0
         table.wipe(eventBuffer)
         table.wipe(activeCCs)
+        table.wipe(spellAlertCooldowns)
         return
     end
 
@@ -917,6 +925,7 @@ tA:SetScript("OnEvent", function(self, event, ...)
         inCombat = false
         table.wipe(eventBuffer)
         table.wipe(activeCCs)
+        table.wipe(spellAlertCooldowns)
         return
     end
 
@@ -937,8 +946,17 @@ tA:SetScript("OnEvent", function(self, event, ...)
             if IsListening(false) then
                 if (missType == "RESIST" and TankBuffReminderCharDB.threatResist) or
                    (missType ~= "RESIST" and TankBuffReminderCharDB.threatMiss) then
-                    
-                    QueueEvent(spellName or "Spell", destName or "", missType)
+
+                    -- Per-spell cooldown: AoE abilities (Demo Shout, Consecration,
+                    -- Swipe, Cleave, etc.) hit multiple targets simultaneously.
+                    -- Only queue the first miss per spellID within SPAM_THROTTLE seconds
+                    -- so we get one alert for the ability, not one per target hit.
+                    local now = GetTime()
+                    local lastSpellAlert = spellAlertCooldowns[spellID] or 0
+                    if (now - lastSpellAlert) >= SPAM_THROTTLE then
+                        spellAlertCooldowns[spellID] = now
+                        QueueEvent(spellName or "Spell", destName or "", missType)
+                    end
                 end
             end
         end

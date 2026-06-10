@@ -89,6 +89,10 @@ local function ProcessResistBuffer()
         elseif TankBuffReminderCharDB.tauntParty then
             SendChatMessage(msg, "PARTY")
         end
+    elseif TankBuffReminderCharDB.tauntSay then
+        pcall(SendChatMessage, msg, "SAY")
+    elseif TankBuffReminderCharDB.tauntYell then
+        pcall(SendChatMessage, msg, "YELL")
     end
 end
 

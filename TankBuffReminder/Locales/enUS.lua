@@ -53,6 +53,10 @@ L["Hide Empty Buttons"]        = true
 L["Bar Orientation"]           = true
 L["Horizontal"]                = true
 L["Vertical"]                  = true
+L["Minimap Button Settings"]  = true
+L["Show Minimap Button"]      = true
+L["Minimap Angle"]            = true
+L["Minimap Distance"]         = true
 
 -- Alerts tab
 L["Buff Alert Sound"]                        = true
@@ -73,16 +77,17 @@ L["Taunt Failure Sound:"]                    = true
 L["Unknown Alert"]                           = true
 
 -- Low Threat Alert System
-L["Low Threat Alert System"]      = true
+L["Low Threat Alert System"]           = true
 L["Enable Low Threat Alert"]      = true
 L["Track Spell Misses"]           = true
 L["Track Spell Resists"]          = true
-L["Track CC / Stuns"]             = true
+L["Track CC / Stuns"]                    = true
+L["CC Alerts last for entire combat"]    = true
 L["Alert Window (sec)"]           = true
 L["Play sound on threat alert"]   = true
 L["Threat Alert Sound:"]          = true
 L["THREAT_ALERT_PREFIX"] =
-    "Low threat detected — DPS hold: "
+    "Threat Warning: "
 L["THREAT_MISS"]   = "Miss"
 L["THREAT_RESIST"] = "Resist"
 L["THREAT_IMMUNE"] = "Immune"
@@ -93,6 +98,7 @@ L["THREAT_BLOCK"]  = "Block"
 -- Automation tab
 L["Combat Automation"]                          = true
 L["Tools"]                                      = true
+L["Maintenance & Roles"]                        = true
 L["Auto-set Tank Role (5-man groups)"]          = true
 L["Auto-set Tank Role (Raids)"]                 = true
 L["Auto-Repair at Merchant"]                    = true
@@ -300,3 +306,53 @@ L["Unstable Flask of the Soldier"] = true
 L["Unstable Flask of the Beast"]  = true
 L["Healing Potion Injector"]      = true
 L["Mana Potion Injector"]         = true
+
+-- CC type labels (ThreatAlert display)
+L["Stun"]   = "Stunned"
+L["Fear"]   = "Feared"
+L["Sleep"]  = "Slept"
+L["Incap"]  = "Incapacitated"
+L["MC"]     = "Mind Controlled"
+L["Poly"]   = "Polymorphed"
+L["Blind"]  = "Blinded"
+L["Banish"] = "Banished"
+
+-- DefenseCap stats panel — TPS section
+L["Attack Power"]  = true
+L["Crit Chance"]   = true
+L["TPS Estimate"]  = true
+L["Est. TPS"]      = true
+
+-- ── Append to Locales/enUS.lua ──────────────────────────────────────────────
+-- External Buffs — Buffs tab
+L["External Buffs"]                    = true
+L["Only show when in a raid or party"] = true
+L["Source"]                            = true
+-- Buff names
+L["Prayer of Fortitude"]         = true
+L["Prayer of Shadow Protection"] = true
+L["Divine Spirit"]               = true
+L["Fear Ward"]                   = true
+L["Arcane Brilliance"]           = true
+L["Blessing of Kings"]           = true
+L["Blessing of Might"]           = true
+L["Blessing of Wisdom"]          = true
+L["Blessing of Sanctuary"]       = true
+L["Blessing of Light"]           = true
+-- Appearance tab
+L["External Buff Bar Appearance"] = true
+-- Alerts tab
+L["External Buff Alerts"]                        = true
+L["Play sound when an external buff is missing"] = true
+L["Announce Channel (click icon):"]              = true
+L["Say"]                                         = true
+L["Party"]                                       = true
+L["Raid"]                                        = true
+L["Yell"]                                        = true
+L["EXT_ANNOUNCE_NOTE"] = "Click any icon on the external\nbuff bar to announce missing buffs."
+-- Chat output
+L["EXT_BUFF_REQUEST_PREFIX"]         = "Buffs needed: "
+L["Click to announce missing buffs"] = true
+
+-- ── External Buff Bar unlock ───────────────────────────────────────────────────
+L["Unlock External Buff Bar (drag to move)"] = true

@@ -9,23 +9,21 @@ local SCALE_MAX      = cfg.defaults.buffScaleMax or 3.0
 local math_max, math_min, math_sin, math_pi, InCombatLockdown =
       math.max, math.min, math.sin, math.pi, InCombatLockdown
 
--- Pools
-local glowPool = {}
-local slots = {}
+local glowPool  = {}
+local slots     = {}
 local framePool = {}
-local slotPool = {}
+local slotPool  = {}
 
--- Pre-allocated aura cache
 local currentAuraCache = {}
-local _auraCachePool = {}
-do
-    for i = 1, 40 do
-        _auraCachePool[i] = { dur = 0, exp = 0 }
-    end
-end
+local _auraCachePool   = {}
+do for i = 1, 40 do _auraCachePool[i] = { dur = 0, exp = 0 } end end
 
 local pulseTimer, pulseElapsed = 0, 0
 local TWO_PI = 2 * math_pi
+
+-- Known wild buff names (for timer lookup)
+local STR_MARK_WILD = "Mark of the Wild"
+local STR_GIFT_WILD = "Gift of the Wild"
 
 -------------------------------------------------------------------------------
 -- Glow Pooling
@@ -46,9 +44,7 @@ end
 
 local function ReleaseGlow(glow)
     if glow then
-        glow:Hide()
-        glow:ClearAllPoints()
-        glow:SetParent(nil)
+        glow:Hide(); glow:ClearAllPoints(); glow:SetParent(nil)
         table.insert(glowPool, glow)
     end
 end
@@ -76,15 +72,12 @@ anchor:SetBackdropBorderColor(1, 1, 1, 0.4)
 
 anchor:SetScript("OnMouseDown", function(self, button)
     if not InCombatLockdown() and button == "LeftButton" and IsShiftKeyDown() then
-        self:StartMoving()
-        self.isMoving = true
+        self:StartMoving(); self.isMoving = true
     end
 end)
-
 anchor:SetScript("OnMouseUp", function(self)
     if self.isMoving then
-        self:StopMovingOrSizing()
-        self.isMoving = false
+        self:StopMovingOrSizing(); self.isMoving = false
         if not InCombatLockdown() and TankBuffReminderDB then
             local p, _, rp, x, y = self:GetPoint()
             TankBuffReminderDB.f1_pos = { p = p, rp = rp, x = x, y = y }
@@ -92,7 +85,6 @@ anchor:SetScript("OnMouseUp", function(self)
     end
 end)
 
--- Clean parent pass-through bounds routing
 anchor:SetPropagateMouseMotion(true)
 anchor:SetPropagateMouseClicks(true)
 
@@ -109,26 +101,24 @@ end
 -- Visual Helpers
 -------------------------------------------------------------------------------
 function TankBuffReminder_UpdateGlow()
-    local db = TankBuffReminderCharDB
-    local color = db.glowColor or cfg.defaults.glowColor
-    local sizeMult = db.glowSize or 1.8
-    local currentSize = BASE_SIZE * (TankBuffReminderDB.scale or 1)
-
+    local db       = TankBuffReminderCharDB
+    local color    = db.glowColor or cfg.defaults.glowColor
+    local sizeMult = db.glowSize  or 1.8
+    local sz       = BASE_SIZE * (TankBuffReminderDB.scale or 1)
     for _, slot in ipairs(slots) do
         if slot.glow then
             slot.glow:SetVertexColor(color.r, color.g, color.b, color.a)
-            slot.glow:SetSize(currentSize * sizeMult, currentSize * sizeMult)
+            slot.glow:SetSize(sz * sizeMult, sz * sizeMult)
         end
     end
 end
 
 function TBR_UI_UpdateAlpha()
-    local db = TankBuffReminderCharDB
+    local db         = TankBuffReminderCharDB
     local frameAlpha = db.frameAlpha or 1.0
-    local currentBGAlpha = anchor.anyMissing and frameAlpha or (frameAlpha * 0.4)
-
-    if anchor.bg then anchor.bg:SetAlpha(currentBGAlpha) end
-    anchor:SetBackdropBorderColor(1, 1, 1, currentBGAlpha)
+    local bgAlpha    = anchor.anyMissing and frameAlpha or (frameAlpha * 0.4)
+    if anchor.bg then anchor.bg:SetAlpha(bgAlpha) end
+    anchor:SetBackdropBorderColor(1, 1, 1, bgAlpha)
 end
 
 local function CacheCooldownText(slot)
@@ -137,20 +127,19 @@ local function CacheCooldownText(slot)
     for i = 1, count do
         local region = select(i, slot.cd:GetRegions())
         if region and region.IsObjectType and region:IsObjectType("FontString") then
-            slot.cdText = region
-            return region
+            slot.cdText = region; return region
         end
     end
     return nil
 end
 
 function TBR_UI_UpdateTimerStyle()
-    local db = TankBuffReminderCharDB
-    local offsetY = db.timerTextOffsetY or 0
-    local tc = db.timerTextColor or cfg.defaults.timerTextColor
-    local tAlpha = db.timerAlpha or 1.0
-    local sweepAlpha = db.sweepAlpha or 0.6
-    local fontSize = db.timerFontSize or 12
+    local db         = TankBuffReminderCharDB
+    local offsetY    = db.timerTextOffsetY or 0
+    local tc         = db.timerTextColor   or cfg.defaults.timerTextColor
+    local tAlpha     = db.timerAlpha       or 1.0
+    local sweepAlpha = db.sweepAlpha       or 0.6
+    local fontSize   = db.timerFontSize    or 12
 
     for _, slot in ipairs(slots) do
         local cd = slot.cd
@@ -159,44 +148,37 @@ function TBR_UI_UpdateTimerStyle()
             cd:SetSwipeColor(0, 0, 0, sweepAlpha)
         end
         cd:SetHideCountdownNumbers(false)
-
         local fs = CacheCooldownText(slot)
         if fs then
             fs:ClearAllPoints()
             fs:SetPoint("CENTER", cd, "CENTER", 0, offsetY)
             fs:SetTextColor(tc.r, tc.g, tc.b, tAlpha)
             local fontPath, _, fontFlags = fs:GetFont()
-            if fontPath then
-                fs:SetFont(fontPath, fontSize, fontFlags or "OUTLINE")
-            end
+            if fontPath then fs:SetFont(fontPath, fontSize, fontFlags or "OUTLINE") end
         end
     end
 end
 
 -------------------------------------------------------------------------------
--- Main Update Loop
+-- OnUpdate
 -------------------------------------------------------------------------------
 anchor:SetScript("OnUpdate", function(self, elapsed)
     pulseElapsed = pulseElapsed + elapsed
     if pulseElapsed < PULSE_INTERVAL then return end
 
-    local db = TankBuffReminderCharDB
+    local db    = TankBuffReminderCharDB
     local speed = db.pulseSpeed or 4
 
-    pulseTimer = (pulseTimer + (pulseElapsed * speed)) % TWO_PI
+    pulseTimer   = (pulseTimer + (pulseElapsed * speed)) % TWO_PI
     pulseElapsed = 0
 
-    local alphaWave = 0.75 + math_sin(pulseTimer) * 0.25
-    local userBuffAlpha = db.buffAlpha or 1.0
-    
-    -- Check Shift state dynamically on update loops
-    local isShift = IsShiftKeyDown()
-    local inCombat = InCombatLockdown()
+    local alphaWave  = 0.75 + math_sin(pulseTimer) * 0.25
+    local userAlpha  = db.buffAlpha or 1.0
+    local isShift    = IsShiftKeyDown()
+    local inCombat   = InCombatLockdown()
 
-    -- Safety check: Force drop attachment if shift is released off-frame during drag
     if self.isMoving and not isShift then
-        self:StopMovingOrSizing()
-        self.isMoving = false
+        self:StopMovingOrSizing(); self.isMoving = false
         if TankBuffReminderDB then
             local p, _, rp, x, y = self:GetPoint()
             TankBuffReminderDB.f1_pos = { p = p, rp = rp, x = x, y = y }
@@ -204,58 +186,45 @@ anchor:SetScript("OnUpdate", function(self, elapsed)
     end
 
     for i = 1, #slots do
-        local slot = slots[i]
-        local btn = slot.btn
+        local slot      = slots[i]
+        local btn       = slot.btn
         local isMissing = (slot.isMissing == true)
 
-        -- Dynamically manage click-mask overlay visibility based on key environment
         if btn.dragMask then
-            if isShift and not inCombat then
-                btn.dragMask:Show()
-            else
-                btn.dragMask:Hide()
-            end
+            if isShift and not inCombat then btn.dragMask:Show()
+            else btn.dragMask:Hide() end
         end
 
         if isMissing then
             slot.icon:SetAlpha(1.0)
             slot.icon:SetDesaturated(false)
-            
-            if slot.glow then
-                slot.glow:Show()
-                slot.glow:SetAlpha(alphaWave)
-            end
-            
+            if slot.glow then slot.glow:Show(); slot.glow:SetAlpha(alphaWave) end
             local sAlpha = db.sweepAlpha or 0.6
             slot.cd:SetSwipeColor(0, 0, 0, sAlpha)
         else
-            if slot.glow then
-                slot.glow:Hide()
-            end
-            
-            slot.icon:SetAlpha(userBuffAlpha * 0.4)
+            if slot.glow then slot.glow:Hide() end
+            slot.icon:SetAlpha(userAlpha * 0.4)
             slot.icon:SetDesaturated(true)
-            slot.cd:SetSwipeColor(0.1, 0.1, 0.1, userBuffAlpha * 0.55)
+            slot.cd:SetSwipeColor(0.1, 0.1, 0.1, userAlpha * 0.55)
         end
     end
 end)
 
 -------------------------------------------------------------------------------
--- Slot Factory (Must be global)
+-- Slot Factory
 -------------------------------------------------------------------------------
 function MakeSlot(index, entry, currentSize)
     local spellName, _, iconTex = GetSpellInfo(entry.spellID)
     if not spellName then return nil end
 
-    local btn = table.remove(framePool)
+    local btn  = table.remove(framePool)
     local slot = table.remove(slotPool) or {}
 
     if not btn then
-        btn = CreateFrame("Button", "TBR_Slot" .. (#slots + #framePool + 1), anchor, "SecureActionButtonTemplate")
+        btn = CreateFrame("Button", "TBR_Slot" .. (#slots + #framePool + 1),
+                          anchor, "SecureActionButtonTemplate")
         btn:RegisterForClicks("AnyUp", "AnyDown")
         btn:SetAttribute("unit", "player")
-
-        -- Clear internal event leakage 
         btn:SetPropagateMouseMotion(true)
         btn:SetPropagateMouseClicks(false)
 
@@ -269,13 +238,9 @@ function MakeSlot(index, entry, currentSize)
 
         btn.glow = GetOrCreateGlow(btn)
 
-        -- Shift-Drag Mask Interceptor Frame
         local mask = CreateFrame("Frame", nil, btn)
-        mask:SetAllPoints()
-        mask:EnableMouse(true)
-        mask:Hide()
+        mask:SetAllPoints(); mask:EnableMouse(true); mask:Hide()
         btn.dragMask = mask
-
         mask:SetScript("OnMouseDown", function(self, button)
             local p = self:GetParent():GetParent()
             if p:GetScript("OnMouseDown") then p:GetScript("OnMouseDown")(p, button) end
@@ -294,9 +259,7 @@ function MakeSlot(index, entry, currentSize)
         end)
         btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     else
-        if not btn.glow then
-            btn.glow = GetOrCreateGlow(btn)
-        end
+        if not btn.glow then btn.glow = GetOrCreateGlow(btn) end
     end
 
     btn:SetAttribute("type", "spell")
@@ -309,19 +272,19 @@ function MakeSlot(index, entry, currentSize)
     btn:SetPoint("LEFT", anchor, "LEFT", (index - 1) * (currentSize + spacing) + 4, 0)
     btn:Show()
 
-    slot.btn = btn
-    slot.icon = btn.icon
-    slot.glow = btn.glow
-    slot.cd = btn.cd
-    slot.key = entry.key
-    slot.spellID = entry.spellID
+    slot.btn      = btn
+    slot.icon     = btn.icon
+    slot.glow     = btn.glow
+    slot.cd       = btn.cd
+    slot.key      = entry.key
+    slot.spellID  = entry.spellID
     slot.isMissing = false
 
     return slot
 end
 
 -------------------------------------------------------------------------------
--- Rebuild & Update
+-- TBR_UI_Update  (with MotW/GotW timer fix)
 -------------------------------------------------------------------------------
 function TBR_UI_Update(buffStates, anyMissing)
     anchor.anyMissing = anyMissing or false
@@ -331,25 +294,30 @@ function TBR_UI_Update(buffStates, anyMissing)
     for i = 1, 40 do
         local name, _, _, _, duration, expirationTime = UnitBuff("player", i)
         if not name then break end
-       
         poolIdx = poolIdx + 1
-        local cacheEntry = _auraCachePool[poolIdx]
-        cacheEntry.dur = duration or 0
-        cacheEntry.exp = expirationTime or 0
-        currentAuraCache[name] = cacheEntry
+        local ce = _auraCachePool[poolIdx]
+        ce.dur = duration or 0
+        ce.exp = expirationTime or 0
+        currentAuraCache[name] = ce
     end
 
     for _, slot in ipairs(slots) do
         slot.isMissing = (buffStates and buffStates[slot.key] == true)
 
         local spellName = GetSpellInfo(slot.spellID)
-        local aura = spellName and currentAuraCache[spellName]
+        local aura      = spellName and currentAuraCache[spellName]
+
+        -- ── FIX: if this is the MotW slot and MotW isn't cached,
+        --         also check Gift of the Wild ────────────────────────────────
+        if not aura and slot.key == "markOfTheWild" then
+            aura = currentAuraCache[STR_GIFT_WILD] or currentAuraCache[STR_MARK_WILD]
+        end
 
         if aura and aura.dur and aura.dur > 0 then
             local start = aura.exp - aura.dur
-            local currentStart, currentDur = slot.cd:GetCooldownTimes()
-           
-            if math.abs((currentStart / 1000) - start) > 0.1 or math.abs((currentDur / 1000) - aura.dur) > 0.1 then
+            local cStart, cDur = slot.cd:GetCooldownTimes()
+            if math.abs((cStart / 1000) - start) > 0.1 or
+               math.abs((cDur  / 1000) - aura.dur) > 0.1 then
                 slot.cd:SetCooldown(start, aura.dur)
                 slot.cd:Show()
             end
@@ -361,15 +329,14 @@ function TBR_UI_Update(buffStates, anyMissing)
     TBR_UI_UpdateAlpha()
 end
 
+-------------------------------------------------------------------------------
+-- TBR_UI_Rebuild
+-------------------------------------------------------------------------------
 function TBR_UI_Rebuild()
-    -- Clean up existing slots
     for _, slot in ipairs(slots) do
         if slot.btn then
             slot.btn:Hide()
-            if slot.btn.glow then
-                ReleaseGlow(slot.btn.glow)
-                slot.btn.glow = nil
-            end
+            if slot.btn.glow then ReleaseGlow(slot.btn.glow); slot.btn.glow = nil end
             if slot.btn.dragMask then slot.btn.dragMask:Hide() end
             table.insert(framePool, slot.btn)
         end
@@ -379,27 +346,23 @@ function TBR_UI_Rebuild()
     table.wipe(slots)
 
     local tracked = TBR_GetTrackedBuffs()
-    if not tracked or #tracked == 0 then
-        anchor:Hide()
-        return
-    end
+    if not tracked or #tracked == 0 then anchor:Hide(); return end
 
     anchor:Show()
     TBR_UI_UpdateAlpha()
 
-    local scale = TankBuffReminderDB.scale or 1
-    local currentSize = BASE_SIZE * scale
-    local spacing = TankBuffReminderCharDB.buttonPadding or 4
-    local padding = 8
-
-    local totalWidth = (currentSize * #tracked) + (spacing * (#tracked - 1)) + padding
-    anchor:SetSize(totalWidth, currentSize + padding)
+    local scale      = TankBuffReminderDB.scale or 1
+    local sz         = BASE_SIZE * scale
+    local spacing    = TankBuffReminderCharDB.buttonPadding or 4
+    local padding    = 8
+    local totalWidth = (sz * #tracked) + (spacing * (#tracked - 1)) + padding
+    anchor:SetSize(totalWidth, sz + padding)
 
     for i, entry in ipairs(tracked) do
-        local slot = MakeSlot(i, entry, currentSize)
+        local slot = MakeSlot(i, entry, sz)
         if slot then
             slot.btn:ClearAllPoints()
-            slot.btn:SetPoint("LEFT", anchor, "LEFT", (i - 1) * (currentSize + spacing) + 4, 0)
+            slot.btn:SetPoint("LEFT", anchor, "LEFT", (i - 1) * (sz + spacing) + 4, 0)
             table.insert(slots, slot)
         end
     end

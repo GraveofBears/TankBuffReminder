@@ -2,10 +2,8 @@
 -- Core: buff detection, automation, event handling, saved variables.
 
 local L = TBR_L
-
 local cfg = TankBuffReminderConfig
 
--- Localize globals
 local GetTime                = GetTime
 local InCombatLockdown       = InCombatLockdown
 local UnitBuff               = UnitBuff
@@ -36,15 +34,14 @@ local STR_GIFT_WILD        = "Gift of the Wild"
 TankBuffReminderDB     = TankBuffReminderDB     or {}
 TankBuffReminderCharDB = TankBuffReminderCharDB or {}
 
--- State
 local trackedBuffs       = nil
-local RunVisibilityCheck  -- forward declaration
+local RunVisibilityCheck
 local isZoning           = false
 local lastRoleSet        = 0
 local roleSetByAddon     = false
 local activeAlerts       = {}
 local hasOverriddenTank  = false
-local wasInGroup         = false -- NEW: Tracks previous group state to reset fresh runs
+local wasInGroup         = false
 local removeSoundPlayed  = false
 local spellInfoCache     = {}
 local spellInfoCacheSize = 0
@@ -55,6 +52,11 @@ local lastAuraDurations  = {}
 local currentAuraDurations = {}
 local EMPTY_TABLE        = {}
 local REMOVAL_LOOKUP     = {}
+local pendingExtRebuild  = false  -- set when a rebuild is requested during combat
+
+-- External buff state (shared with ExternalBuffBar.lua via global)
+TBR_ExtBuffStates = TBR_ExtBuffStates or {}
+local lastExtBuffStates = {}
 
 -------------------------------------------------------------------------------
 -- Spell helpers
@@ -68,7 +70,6 @@ local function IsInDefensiveStance()
     local _, _, _, id = GetShapeshiftFormInfo(form)
     return id == DEFENSIVE_STANCE_ID
 end
--- Exported so ThreatAlert.lua can use it without duplicating shapeshift logic
 TBR_IsInDefensiveStance = IsInDefensiveStance
 
 local function GetSpellName(spellID)
@@ -78,8 +79,7 @@ local function GetSpellName(spellID)
         n = GetSpellInfo(spellID)
         if n then
             if spellInfoCacheSize >= SPELL_CACHE_MAX then
-                table_wipe(spellInfoCache)
-                spellInfoCacheSize = 0
+                table_wipe(spellInfoCache); spellInfoCacheSize = 0
             end
             spellInfoCache[spellID] = n
             spellInfoCacheSize = spellInfoCacheSize + 1
@@ -104,6 +104,7 @@ function HasBuff(spellID, entry)
         if isShout then
             if name == STR_BATTLE_SHOUT or name == STR_COMMANDING_SHOUT then return true end
         elseif isWild then
+            -- ── FIX: Gift of the Wild satisfies Mark of the Wild ───────────
             if name == STR_MARK_WILD or name == STR_GIFT_WILD then return true end
         elseif name == targetName then
             return true
@@ -113,57 +114,51 @@ function HasBuff(spellID, entry)
 end
 
 -------------------------------------------------------------------------------
--- Public API consumed by FrameUI.lua
+-- Public API
 -------------------------------------------------------------------------------
 function TBR_GetTrackedBuffs()
     return trackedBuffs or {}
 end
 
 function TBR_ForceCheck()
-    if RunVisibilityCheck then
-        RunVisibilityCheck()
-    end
+    if RunVisibilityCheck then RunVisibilityCheck() end
+end
+
+-- Wipe the last-state caches so the next RunVisibilityCheck unconditionally
+-- pushes a fresh TBR_UI_Update. Call this whenever slots are rebuilt.
+function TBR_ResetLastBuffStates()
+    if lastBuffStates    then table_wipe(lastBuffStates)    end
+    if lastAuraDurations then table_wipe(lastAuraDurations) end
 end
 
 -------------------------------------------------------------------------------
--- Master enable/disable — called by MinimapButton toggle
+-- Master enable/disable
 -------------------------------------------------------------------------------
 function TBR_SetAddonEnabled(enabled)
     if not TankBuffReminderCharDB then return end
     TankBuffReminderCharDB.disabled = not enabled
 
     if not enabled then
-        -- Wipe trackedBuffs so TBR_UI_Rebuild sees an empty list and hides the anchor
         if trackedBuffs then table_wipe(trackedBuffs) end
-
-        -- Hide every UI surface directly — don't rely on rebuild logic
-        local buffAnchor = _G["TankBuffReminderFrame"]
-        if buffAnchor then buffAnchor:Hide() end
-
-        local consAnchor = _G["TBR_ConsumableBar"]
-        if consAnchor then consAnchor:Hide() end
-
+        local buffAnchor    = _G["TankBuffReminderFrame"]
+        if buffAnchor    then buffAnchor:Hide()    end
+        local extAnchor     = _G["TBR_ExtBuffFrame"]
+        if extAnchor     then extAnchor:Hide()     end
+        local consAnchor    = _G["TBR_ConsumableBar"]
+        if consAnchor    then consAnchor:Hide()    end
         local removalAnchor = _G["TBR_RemovalAnchor"]
         if removalAnchor then removalAnchor:Hide() end
-
         if TBR_CharFrameDefCapButton then TBR_CharFrameDefCapButton:Hide() end
-
-        -- Also tear down slots so nothing lingers on re-enable
         if TBR_UI_Rebuild then TBR_UI_Rebuild() end
-
         print("|cFFFF6600[TBR]|r Addon disabled.")
     else
-        -- Full login-style rebuild restores everything
         TankBuffReminder_RebuildTrackedBuffs()
+        if TBR_ExtBar_Rebuild    then TBR_ExtBar_Rebuild()    end
         if TBR_ConsBar_Rebuild   then TBR_ConsBar_Rebuild()   end
         if TBR_DefCapBtn_Refresh then TBR_DefCapBtn_Refresh() end
-
-        -- RemovalUI anchor must be explicitly shown — TBR_RemovalUI_Update only
-        -- shows buttons inside it based on buff state, never the anchor itself
         local removalAnchor = _G["TBR_RemovalAnchor"]
         if removalAnchor then removalAnchor:Show() end
         if TBR_RemovalUI_Update  then TBR_RemovalUI_Update()  end
-
         print("|cFF33FF33[TBR]|r Addon enabled.")
     end
 end
@@ -171,43 +166,113 @@ end
 -------------------------------------------------------------------------------
 -- Automation
 -------------------------------------------------------------------------------
-local roleUpdatePending = false -- Prevent spamming role assignments before server responds
+local roleUpdatePending = false
 
 local function DoAutomation()
     local db = TankBuffReminderCharDB
     if hasOverriddenTank or InCombatLockdown() or not IsInGroup() then return end
-
     local inRaid = IsInRaid()
-
-    -- Determine whether this group type has auto-role enabled
     local wantAutoRole
-    if inRaid then
-        wantAutoRole = db.autoSetTankRoleRaid == true
-    else
-        wantAutoRole = db.autoSetTankRole ~= false
-    end
+    if inRaid then wantAutoRole = db.autoSetTankRoleRaid == true
+    else wantAutoRole = db.autoSetTankRole ~= false end
     if not wantAutoRole then return end
-
-    -- Filter out battlegrounds and arenas
     local _, instanceType = IsInInstance()
     if instanceType == "pvp" or instanceType == "arena" then return end
-
     local currentRole = UnitGroupRolesAssigned("player")
-
-    -- If we are already a TANK, make sure our flags are clean
-    if currentRole == "TANK" then
-        roleUpdatePending = false
-        return
-    end
-
-    -- Only attempt to set the role if a request isn't already flying to the server
+    if currentRole == "TANK" then roleUpdatePending = false; return end
     if not roleUpdatePending then
         local now = GetTime()
         if (now - lastRoleSet) >= 4 then
-            lastRoleSet       = now
-            roleSetByAddon    = true
-            roleUpdatePending = true -- Lock it down until the server updates us
+            lastRoleSet = now; roleSetByAddon = true; roleUpdatePending = true
             UnitSetRole("player", "TANK")
+        end
+    end
+end
+
+-------------------------------------------------------------------------------
+-- External buff check  (smart class detection)
+-------------------------------------------------------------------------------
+
+local groupClassSet        = {}
+local groupClassCacheValid = false
+
+-- Public accessor so ExternalBuffBar can filter its slot list by the same class set
+function TBR_GetGroupClassSet()
+    return groupClassSet
+end
+
+local function RebuildGroupClassCache()
+    table.wipe(groupClassSet)
+    groupClassCacheValid = true
+    if not IsInGroup() then return end
+    if IsInRaid() then
+        local n = GetNumGroupMembers()
+        for i = 1, n do
+            local _, classFile = UnitClass("raid" .. i)
+            if classFile then groupClassSet[classFile] = true end
+        end
+    else
+        local n = GetNumSubgroupMembers()
+        for i = 1, n do
+            local _, classFile = UnitClass("party" .. i)
+            if classFile then groupClassSet[classFile] = true end
+        end
+    end
+end
+
+local function CheckExternalBuffs()
+    local db = TankBuffReminderCharDB
+    if not db or db.disabled then return end
+    if not TankBuffReminderExternalBuffs then return end
+
+    local unlocked = db.extBarUnlocked
+
+    if not unlocked then
+        local inGroup     = IsInGroup()
+        local inRaid      = IsInRaid()
+        local showInParty = db.extBuffsShowInParty ~= false
+        local showInRaid  = db.extBuffsShowInRaid  ~= false
+
+        if not inGroup
+           or (inRaid and not showInRaid)
+           or (not inRaid and not showInParty) then
+            for _, entry in ipairs(TankBuffReminderExternalBuffs) do
+                TBR_ExtBuffStates[entry.key] = false
+            end
+            return
+        end
+    end
+
+    local smartDetect = db.extSmartDetect ~= false  -- default true
+    if smartDetect and not groupClassCacheValid then
+        RebuildGroupClassCache()
+    end
+
+    local playerBuffs = {}
+    for i = 1, 40 do
+        local name = UnitBuff("player", i)
+        if not name then break end
+        playerBuffs[name] = true
+    end
+
+    for _, entry in ipairs(TankBuffReminderExternalBuffs) do
+        if db["ext_" .. entry.key] then
+            if smartDetect and not unlocked and entry.sourceClass
+               and not groupClassSet[entry.sourceClass] then
+                TBR_ExtBuffStates[entry.key] = false
+            else
+                local found = false
+                if type(entry.buffName) == "table" then
+                    for _, bn in ipairs(entry.buffName) do
+                        if playerBuffs[bn] then found = true; break end
+                    end
+                else
+                    found = playerBuffs[entry.buffName] == true
+                end
+                TBR_ExtBuffStates[entry.key] = not found
+            end
+        else
+            TBR_ExtBuffStates[entry.key] = false
         end
     end
 end
@@ -218,18 +283,18 @@ end
 RunVisibilityCheck = function()
     if isZoning or not trackedBuffs then return end
     if TankBuffReminderCharDB and TankBuffReminderCharDB.disabled then return end
+
     DoAutomation()
 
     table_wipe(buffStates)
     table_wipe(currentAuraDurations)
-    local anyAlertActive   = false
+    local anyAlertActive = false
     local anyRemovalActive = false
 
-    -- 1. Tracked Buffs Loop (Reminders)
+    -- 1. Tracked Buffs Loop (self-buffs / reminders)
     for i = 1, #trackedBuffs do
-        local entry     = trackedBuffs[i]
+        local entry = trackedBuffs[i]
         local spellName = GetSpellInfo(entry.spellID)
-
         for j = 1, 40 do
             local name, _, _, _, _, expirationTime = UnitBuff("player", j)
             if not name then break end
@@ -239,7 +304,6 @@ RunVisibilityCheck = function()
                 break
             end
         end
-
         local showAlert = not HasBuff(entry.spellID, entry)
         buffStates[entry.key] = showAlert
         if showAlert then anyAlertActive = true end
@@ -249,32 +313,37 @@ RunVisibilityCheck = function()
     for idx = 1, 40 do
         local buffName = UnitBuff("player", idx)
         if not buffName then break end
-
         local entry = REMOVAL_LOOKUP[buffName]
         if entry then
             local autoRemoveEnabled = TankBuffReminderCharDB[entry.dbKey]
-            local showIconEnabled   = TankBuffReminderCharDB[entry.showIconDbKey]
-
+            local showIconEnabled = TankBuffReminderCharDB[entry.showIconDbKey]
             if showIconEnabled then
-                buffStates[entry.key] = true
-                anyAlertActive = true
+                buffStates[entry.key] = true; anyAlertActive = true
             elseif autoRemoveEnabled then
                 if not InCombatLockdown() and entry.canSelfRemove then
-                    CancelUnitBuff("player", idx)
-                    anyRemovalActive = true
+                    CancelUnitBuff("player", idx); anyRemovalActive = true
                 else
-                    buffStates[entry.key] = true
-                    anyAlertActive = true
+                    buffStates[entry.key] = true; anyAlertActive = true
                 end
             end
         end
     end
 
-    -- 3. Audio Logic (Salvation/BoP specific)
-    local salvActive = buffStates["salvation"]
-    local bopActive  = buffStates["bop"]
-    local triggerRemovalSound = anyRemovalActive or salvActive or bopActive
+    -- 3. External Buff Check
+    CheckExternalBuffs()
 
+    local anyExtMissing = false
+    for _, entry in ipairs(TankBuffReminderExternalBuffs or {}) do
+        if TBR_ExtBuffStates[entry.key] then 
+            anyExtMissing = true
+            break 
+        end
+    end
+
+    -- 4. Audio Logic (Salvation/BoP)
+    local salvActive = buffStates["salvation"]
+    local bopActive = buffStates["bop"]
+    local triggerRemovalSound = anyRemovalActive or salvActive or bopActive
     if triggerRemovalSound then
         if not removeSoundPlayed then
             if TankBuffReminderCharDB.removeSoundEnabled ~= false then
@@ -287,7 +356,7 @@ RunVisibilityCheck = function()
         removeSoundPlayed = false
     end
 
-    -- 4. Audio Logic (Tracked Buffs)
+    -- 5. Audio Logic (Tracked self-buffs)
     if anyAlertActive and not triggerRemovalSound then
         local playedForThisCheck = false
         for i = 1, #trackedBuffs do
@@ -296,8 +365,7 @@ RunVisibilityCheck = function()
                 if not activeAlerts[key] then
                     if not playedForThisCheck and TankBuffReminderCharDB.playSound ~= false then
                         local soundID = TankBuffReminderCharDB.soundID or cfg.defaults.soundID or 8959
-                        PlaySound(soundID, "Master")
-                        playedForThisCheck = true
+                        PlaySound(soundID, "Master"); playedForThisCheck = true
                     end
                     activeAlerts[key] = true
                 end
@@ -309,40 +377,51 @@ RunVisibilityCheck = function()
         table_wipe(activeAlerts)
     end
 
-    -- 5. UI Update Logic
+    -- 6. UI Update (self-buff bar)
     local needsUIUpdate = false
     for i = 1, #trackedBuffs do
         local key = trackedBuffs[i].key
         if buffStates[key] ~= lastBuffStates[key] or currentAuraDurations[key] ~= lastAuraDurations[key] then
-            needsUIUpdate = true
-            break
+            needsUIUpdate = true; break
         end
     end
-
     if not needsUIUpdate then
         if buffStates["salvation"] ~= lastBuffStates["salvation"] or
            buffStates["bop"] ~= lastBuffStates["bop"] then
             needsUIUpdate = true
         end
     end
-
     if needsUIUpdate then
         for i = 1, #trackedBuffs do
             local key = trackedBuffs[i].key
-            lastBuffStates[key]    = buffStates[key]
+            lastBuffStates[key] = buffStates[key]
             lastAuraDurations[key] = currentAuraDurations[key]
         end
-
         lastBuffStates["salvation"] = buffStates["salvation"]
-        lastBuffStates["bop"]       = buffStates["bop"]
+        lastBuffStates["bop"] = buffStates["bop"]
+        if TBR_UI_Update then TBR_UI_Update(buffStates, anyAlertActive) end
+    end
 
-        if TBR_UI_Update then
-            TBR_UI_Update(buffStates, anyAlertActive)
+    -- 7. UI Update (external buff bar) - IMPROVED
+    local extNeedsUpdate = false
+    for _, entry in ipairs(TankBuffReminderExternalBuffs or {}) do
+        if TBR_ExtBuffStates[entry.key] ~= lastExtBuffStates[entry.key] then
+            extNeedsUpdate = true
+            break
         end
     end
-    if TBR_RemovalUI_Update then
-        TBR_RemovalUI_Update(buffStates)
+
+    -- Only push to the bar when state actually changed
+    if extNeedsUpdate then
+        for _, entry in ipairs(TankBuffReminderExternalBuffs or {}) do
+            lastExtBuffStates[entry.key] = TBR_ExtBuffStates[entry.key]
+        end
+        if TBR_ExtBar_Update then
+            TBR_ExtBar_Update(TBR_ExtBuffStates, anyExtMissing)
+        end
     end
+
+    if TBR_RemovalUI_Update then TBR_RemovalUI_Update(buffStates) end
 end
 
 -------------------------------------------------------------------------------
@@ -370,11 +449,8 @@ function TankBuffReminder_RebuildTrackedBuffs()
         return
     end
 
-    if not trackedBuffs then
-        trackedBuffs = {}
-    else
-        table_wipe(trackedBuffs)
-    end
+    if not trackedBuffs then trackedBuffs = {}
+    else table_wipe(trackedBuffs) end
 
     local _, class    = UnitClass("player")
     local sectionName = CLASS_SECTION_NAME[class]
@@ -412,7 +488,15 @@ function TankBuffReminder_RebuildTrackedBuffs()
         end
     end
 
-    if TBR_UI_Rebuild then TBR_UI_Rebuild() end
+    if TBR_UI_Rebuild    then TBR_UI_Rebuild()    end
+    if TBR_ExtBar_Rebuild then TBR_ExtBar_Rebuild() end
+
+    -- Wipe last-state caches so RunVisibilityCheck is guaranteed to call
+    -- TBR_UI_Update on the next tick, even if the buff situation hasn't changed.
+    -- Without this, fresh slots (isMissing = false) never get corrected because
+    -- the change-detection guard sees no diff against stale lastBuffStates.
+    if lastBuffStates    then table_wipe(lastBuffStates)    end
+    if lastAuraDurations then table_wipe(lastAuraDurations) end
     TBR_ForceCheck()
 end
 
@@ -435,15 +519,14 @@ local lastAuraUpdate = 0
 
 local function OnZoneTimer()
     isZoning = false
-    table_wipe(lastBuffStates)
-    table_wipe(lastAuraDurations)
+    if lastBuffStates    then table_wipe(lastBuffStates)    end
+    if lastAuraDurations then table_wipe(lastAuraDurations) end
+    if lastExtBuffStates then table_wipe(lastExtBuffStates) end
     TBR_ForceCheck()
 end
 
 local function OnRosterTimer()
-    if RunVisibilityCheck then
-        RunVisibilityCheck()
-    end
+    if RunVisibilityCheck then RunVisibilityCheck() end
 end
 
 local function OnSpecTimer()
@@ -455,32 +538,28 @@ eF:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
         if arg1 == "player" then
             local now = GetTime()
             if (now - lastAuraUpdate) > 0.2 then
-                lastAuraUpdate = now
-                RunVisibilityCheck()
+                lastAuraUpdate = now; RunVisibilityCheck()
             end
         end
         return
     end
 
-    if event == "UPDATE_SHAPESHIFT_FORM" then
-        RunVisibilityCheck()
-        return
-    end
+    if event == "UPDATE_SHAPESHIFT_FORM" then RunVisibilityCheck(); return end
 
     if event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
         RunVisibilityCheck()
+        -- Flush any ext bar rebuild that was deferred to avoid combat lockdown
+        if event == "PLAYER_REGEN_ENABLED" and pendingExtRebuild then
+            pendingExtRebuild = false
+            if TBR_ExtBar_Rebuild then TBR_ExtBar_Rebuild() end
+        end
         return
     end
-    
+
     if event == "PLAYER_ROLES_ASSIGNED" then
         local currentRole = UnitGroupRolesAssigned("player")
-        
-        -- If the addon set Tank, but the role changed to something else (DPS/HEALER)
         if roleSetByAddon and currentRole ~= "NONE" and currentRole ~= "TANK" then
-            roleSetByAddon    = false
-            hasOverriddenTank = true -- Flag that we manually changed our mind for this group
-        
-        -- If we are assigned tank (manually or by addon), track the timestamp
+            roleSetByAddon = false; hasOverriddenTank = true
         elseif currentRole == "TANK" then
             lastRoleSet = GetTime()
         end
@@ -489,24 +568,26 @@ eF:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
 
     if event == "PLAYER_ENTERING_WORLD" then
         isZoning = true
-        wasInGroup = IsInGroup() -- Cache group state on zone transitions
+        wasInGroup = IsInGroup()
         C_Timer.After(2, OnZoneTimer)
         return
     end
-	
-	if TankBuffReminderCharDB and TankBuffReminderCharDB.disabled and event ~= "PLAYER_LOGIN" then return end
+
+    if TankBuffReminderCharDB and TankBuffReminderCharDB.disabled and event ~= "PLAYER_LOGIN" then return end
 
     if event == "PLAYER_LOGIN" then
-        TankBuffReminderDB = TankBuffReminderDB or {}
+        TankBuffReminderDB     = TankBuffReminderDB     or {}
         TankBuffReminderCharDB = TankBuffReminderCharDB or {}
 
         local globalDBKeys = {
-            consBarEnabled = true, consFrameAlpha = true, consScale = true,
-            consAlpha = true, consPadding = true, consMouseover = true,
-            consHideEmpty = true,
-            consPulseSpeed = true, consTimerFontSize = true, consTimerOffsetY = true,
-            consTimerAlpha = true, consSweepAlpha = true, consGlowAlpha = true,
-            consGlowColor = true, consTextColor = true,
+            consBarEnabled=true, consFrameAlpha=true, consScale=true,
+            consAlpha=true, consPadding=true, consMouseover=true,
+            consHideEmpty=true, consPulseSpeed=true, consTimerFontSize=true,
+            consTimerOffsetY=true, consTimerAlpha=true, consSweepAlpha=true,
+            consGlowAlpha=true, consGlowColor=true, consTextColor=true,
+            -- External bar globals
+            extBarScale=true, extBarButtonPadding=true,
+            extGlowColor=true, extBar_pos=true,
         }
 
         if cfg and cfg.defaults then
@@ -528,31 +609,49 @@ eF:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
             end
         end
 
-        -- Taunt Alert System Defaults
-        if TankBuffReminderCharDB.tauntEnabled == nil then
-            TankBuffReminderCharDB.tauntEnabled = true
+        -- External buff defaults
+        if TankBuffReminderExternalBuffs then
+            for _, entry in ipairs(TankBuffReminderExternalBuffs) do
+                local k = "ext_" .. entry.key
+                if TankBuffReminderCharDB[k] == nil then
+                    TankBuffReminderCharDB[k] = false
+                end
+            end
         end
-        if TankBuffReminderCharDB.tauntWarning == nil then
-            TankBuffReminderCharDB.tauntWarning = true
-        end
-        if TankBuffReminderCharDB.tauntSay == nil then
-            TankBuffReminderCharDB.tauntSay = false
-        end
-        if TankBuffReminderCharDB.tauntParty == nil then
-            TankBuffReminderCharDB.tauntParty = false
-        end
-        if TankBuffReminderCharDB.tauntRaid == nil then
-            TankBuffReminderCharDB.tauntRaid = false
-        end
-        if TankBuffReminderCharDB.tauntYell == nil then        -- NEW: Yell option
-            TankBuffReminderCharDB.tauntYell = false
-        end
-        if TankBuffReminderCharDB.tauntSoundEnabled == nil then
-            TankBuffReminderCharDB.tauntSoundEnabled = true
-        end
+        if TankBuffReminderCharDB.extBuffsShowInParty  == nil then TankBuffReminderCharDB.extBuffsShowInParty  = true  end
+        if TankBuffReminderCharDB.extBuffsShowInRaid   == nil then TankBuffReminderCharDB.extBuffsShowInRaid   = true  end
+        if TankBuffReminderCharDB.extSmartDetect       == nil then TankBuffReminderCharDB.extSmartDetect       = true  end
+        if TankBuffReminderCharDB.extBarUnlocked       == nil then TankBuffReminderCharDB.extBarUnlocked       = false end
+        if TankBuffReminderCharDB.extPlaySound         == nil then TankBuffReminderCharDB.extPlaySound         = true  end
+        if TankBuffReminderCharDB.extSoundID           == nil then TankBuffReminderCharDB.extSoundID           = 8959  end
+        if TankBuffReminderCharDB.extFrameAlpha        == nil then TankBuffReminderCharDB.extFrameAlpha        = 1.0   end
+        if TankBuffReminderCharDB.extBuffAlpha         == nil then TankBuffReminderCharDB.extBuffAlpha         = 1.0   end
+        if TankBuffReminderCharDB.extGlowSize          == nil then TankBuffReminderCharDB.extGlowSize          = 2.0   end
+        if TankBuffReminderCharDB.extPulseSpeed        == nil then TankBuffReminderCharDB.extPulseSpeed        = 4     end
+        if TankBuffReminderCharDB.extSweepAlpha        == nil then TankBuffReminderCharDB.extSweepAlpha        = 0.6   end
+        if TankBuffReminderCharDB.extTimerFontSize     == nil then TankBuffReminderCharDB.extTimerFontSize     = 12    end
+        if TankBuffReminderCharDB.extTimerTextOffsetY  == nil then TankBuffReminderCharDB.extTimerTextOffsetY  = 0     end
+        if TankBuffReminderCharDB.extTimerAlpha        == nil then TankBuffReminderCharDB.extTimerAlpha        = 1.0   end
+        if TankBuffReminderCharDB.extAnnounceChannel   == nil then TankBuffReminderCharDB.extAnnounceChannel   = "PARTY" end
+        if TankBuffReminderCharDB.extWarning           == nil then TankBuffReminderCharDB.extWarning           = true  end
+        if TankBuffReminderCharDB.extSay               == nil then TankBuffReminderCharDB.extSay               = false end
+        if TankBuffReminderCharDB.extYell              == nil then TankBuffReminderCharDB.extYell              = false end
+        if TankBuffReminderCharDB.extParty             == nil then TankBuffReminderCharDB.extParty             = false end
+        if TankBuffReminderCharDB.extRaid              == nil then TankBuffReminderCharDB.extRaid              = false end
+        if TankBuffReminderCharDB.extWarnSeconds       == nil then TankBuffReminderCharDB.extWarnSeconds       = 0     end
+        if TankBuffReminderDB.extBarScale              == nil then TankBuffReminderDB.extBarScale              = 1.0   end
+        if TankBuffReminderDB.extBarButtonPadding      == nil then TankBuffReminderDB.extBarButtonPadding      = 4     end
+        if TankBuffReminderDB.extGlowColor             == nil then TankBuffReminderDB.extGlowColor             = { r=1, g=1, b=0.6, a=1 } end
+        -- Taunt defaults
+        if TankBuffReminderCharDB.tauntEnabled  == nil then TankBuffReminderCharDB.tauntEnabled  = true  end
+        if TankBuffReminderCharDB.tauntWarning  == nil then TankBuffReminderCharDB.tauntWarning  = true  end
+        if TankBuffReminderCharDB.tauntSay      == nil then TankBuffReminderCharDB.tauntSay      = false end
+        if TankBuffReminderCharDB.tauntParty    == nil then TankBuffReminderCharDB.tauntParty    = false end
+        if TankBuffReminderCharDB.tauntRaid     == nil then TankBuffReminderCharDB.tauntRaid     = false end
+        if TankBuffReminderCharDB.tauntYell     == nil then TankBuffReminderCharDB.tauntYell     = false end
+        if TankBuffReminderCharDB.tauntSoundEnabled == nil then TankBuffReminderCharDB.tauntSoundEnabled = true end
 
-        wasInGroup = IsInGroup() -- Cache starting group state
-
+        wasInGroup = IsInGroup()
         TankBuffReminder_RebuildTrackedBuffs()
 
         if TankBuffReminderOptions and TankBuffReminderOptions.refresh then
@@ -577,23 +676,30 @@ eF:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
         end
         return
     end
-    
+
     if event == "GROUP_ROSTER_UPDATE" then
         local inGroup = IsInGroup()
-
-        -- Wipes override states if you transition from No Group -> Group OR Group -> No Group
         if inGroup ~= wasInGroup then
-            hasOverriddenTank = false
-            roleSetByAddon    = false
-            wasInGroup        = inGroup -- Sync state cache
+            hasOverriddenTank = false; roleSetByAddon = false; wasInGroup = inGroup
         end
-
+        -- Rebuild class cache immediately so smart detection is accurate
+        -- on the very first RunVisibilityCheck after the roster changes.
+        groupClassCacheValid = false
+        RebuildGroupClassCache()
         C_Timer.After(1, OnRosterTimer)
+        C_Timer.After(1.1, function()
+            if TBR_ExtBar_Rebuild then
+                if InCombatLockdown() then
+                    pendingExtRebuild = true
+                else
+                    TBR_ExtBar_Rebuild()
+                end
+            end
+        end)
         return
     end
 
     if event == "PLAYER_SPECIALIZATION_CHANGED" then
-        C_Timer.After(0.5, OnSpecTimer)
-        return
+        C_Timer.After(0.5, OnSpecTimer); return
     end
 end)

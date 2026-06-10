@@ -34,7 +34,7 @@ TankBuffReminderConfig = {
             label         = "Blessing of Protection",
             spellID       = 1022,
             watchNames    = { "Blessing of Protection", "Greater Blessing of Protection" },
-            canSelfRemove = false,
+            canSelfRemove = true,
         },
     },
 
@@ -185,7 +185,7 @@ TankBuffReminderConfig = {
 		{ key="unstableBeast",       label="Unstable Flask of the Beast",     category="Flasks", itemIDs={32598}, icon="Interface\\Icons\\inv_potion_157", defaultOn=false, druidInstant=true, druidWarn=false },
         
         -- Flasks
-        { key="flaskFortification", label="Flask of Fortification",      category="Flasks", itemIDs={22851, 32901}, icon="Interface\\Icons\\inv_potion_155", defaultOn=false, druidInstant=true, druidWarn=false, buffSpellID=17628  },
+        { key="flaskFortification", label="Flask of Fortification",      category="Flasks", itemIDs={22851, 32901}, icon="Interface\\Icons\\inv_potion_155", defaultOn=false, druidInstant=true, druidWarn=false, buffSpellID=17538  },
         { key="flaskRelentless",    label="Flask of Relentless Assault", category="Flasks", itemIDs={22854, 32903}, icon="Interface\\Icons\\inv_potion_154", defaultOn=false, druidInstant=true, druidWarn=false, buffSpellID=28520  },
         { key="flaskChromatic",     label="Flask of Chromatic Wonder",   category="Flasks", itemIDs={33208},        icon="Interface\\Icons\\inv_potion_157", defaultOn=false, druidInstant=true, druidWarn=false, buffSpellID=42735  },
         { key="flaskBlinding",      label="Flask of Blinding Light",     category="Flasks", itemIDs={22861, 32902}, icon="Interface\\Icons\\inv_potion_151", defaultOn=false, druidInstant=true, druidWarn=false, buffSpellID=28518  },
@@ -194,7 +194,7 @@ TankBuffReminderConfig = {
         { key="elixirMajorMageblood", label="Elixir of Major Mageblood",   category="Guardian Elixirs", itemIDs={22840}, icon="Interface\\Icons\\inv_potion_170", defaultOn=false, druidInstant=true, druidWarn=false, buffSpellID=38913 },
         { key="elixirMajorDefense",   label="Elixir of Major Defense",     category="Guardian Elixirs", itemIDs={22834}, icon="Interface\\Icons\\inv_potion_158", defaultOn=false, druidInstant=true, druidWarn=false, buffSpellID=32839 },
         { key="elixirMajorFort",      label="Elixir of Major Fortitude",   category="Guardian Elixirs", itemIDs={32062}, icon="Interface\\Icons\\inv_potion_155", defaultOn=false, druidInstant=true, druidWarn=false, buffSpellID=32844 },
-        { key="giftArthas",           label="Gift of Arthas",              category="Guardian Elixirs", itemIDs={9088},  icon="Interface\\Icons\\inv_potion_28",  defaultOn=false, druidInstant=true, druidWarn=false, buffSpellID=11390 },
+        { key="giftArthas",           label="Gift of Arthas",              category="Guardian Elixirs", itemIDs={9088},  icon="Interface\\Icons\\inv_potion_28",  defaultOn=false, druidInstant=true, druidWarn=false, buffSpellID=11371 },
 
         -- Battle Elixirs
         { key="elixirMajorAgility",  label="Elixir of Major Agility",    category="Battle Elixirs", itemIDs={22831}, icon="Interface\\Icons\\inv_potion_152", defaultOn=false, druidInstant=true, druidWarn=false, buffSpellID=32833 },
